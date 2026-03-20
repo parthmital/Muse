@@ -64,6 +64,10 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
+# Media files
+*.m4a
+*.png
+
 # Temporary files
 *.tmp
 *.temp
@@ -84,12 +88,6 @@ test-results.xml
 
 # Misc
 .history
-
-# Public folder assets
-Frontend/public/search/
-Frontend/public/music/
-Frontend/public/images/
-Frontend/public/art/
 
 # Python
 __pycache__/
@@ -118,3 +116,10 @@ MANIFEST
 venv/
 ENV/
 env/
+
+# Project specific
+data/
+Backend/data/
+Backend/python/__pycache__/
+Backend/python/venv/
+Backend/python/.venv/
