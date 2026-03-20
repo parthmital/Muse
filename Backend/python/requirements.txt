@@ -1,0 +1,17 @@
+# ── Web ───────────────────────────────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+
+# ── Embeddings ────────────────────────────────────────────────────────────────
+sentence-transformers==2.7.0
+torch==2.3.0           # GPU if CUDA available, CPU fallback handled at runtime
+
+# ── FAISS: install GPU build if CUDA present, CPU otherwise ───────────────────
+# Install manually:
+#   CUDA:   pip install faiss-gpu
+#   No GPU: pip install faiss-cpu
+# The service auto-detects and falls back to CPU.
+
+# ── Utils ─────────────────────────────────────────────────────────────────────
+numpy==1.26.4
+pydantic==2.7.1

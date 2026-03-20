@@ -1,0 +1,40 @@
+{
+	"name": "music-rec-engine",
+	"version": "3.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "tsx watch src/index.ts",
+		"worker": "tsx watch src/workers/runner.ts",
+		"start": "node dist/index.js",
+		"build": "tsc",
+		"migrate": "drizzle-kit push",
+		"studio": "drizzle-kit studio",
+		"seed": "tsx scripts/seedCatalog.ts",
+		"build-index": "tsx scripts/buildIndex.ts"
+	},
+	"dependencies": {
+		"fastify": "^4.27.0",
+		"@fastify/cors": "^9.0.1",
+		"@fastify/swagger": "^8.14.0",
+		"@fastify/swagger-ui": "^4.0.0",
+		"better-sqlite3": "^9.6.0",
+		"drizzle-orm": "^0.31.2",
+		"zod": "^3.23.8",
+		"lru-cache": "^10.2.2",
+		"axios": "^1.7.2",
+		"pino": "^9.2.0",
+		"pino-pretty": "^11.2.0",
+		"dotenv": "^16.4.5",
+		"p-limit": "^5.0.0",
+		"node-schedule": "^2.1.1",
+		"fastq": "^1.17.1"
+	},
+	"devDependencies": {
+		"typescript": "^5.4.5",
+		"tsx": "^4.15.7",
+		"drizzle-kit": "^0.22.7",
+		"@types/better-sqlite3": "^7.6.10",
+		"@types/node": "^20.14.2",
+		"@types/node-schedule": "^2.1.7"
+	}
+}

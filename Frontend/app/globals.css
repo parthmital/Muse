@@ -1,0 +1,102 @@
+@import url("https://fonts.googleapis.com/css2?family=Sansation:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap");
+@import "tailwindcss";
+
+@theme {
+	--grid-template-columns-song-list-4: 40px 1fr max-content max-content;
+	--grid-template-columns-song-list-5: 40px 1fr 100px max-content max-content;
+	--grid-template-columns-song-list-6: 40px 1fr 1fr 100px max-content
+		max-content;
+	--min-width-15: 15%;
+}
+
+@layer base {
+	* {
+		box-sizing: border-box;
+		font-family: "Sansation", sans-serif;
+		font-style: normal;
+		font-weight: 400;
+		line-height: normal;
+		margin: 0;
+		padding: 0;
+		@apply ring-0 outline-none;
+	}
+
+	body {
+		@apply overflow-hidden bg-black text-sm text-neutral-400;
+	}
+
+	input {
+		all: unset;
+		width: 100%;
+		box-sizing: border-box;
+	}
+
+	input::placeholder {
+		@apply text-neutral-400;
+	}
+
+	a {
+		text-decoration: none;
+		color: inherit;
+		outline: none;
+	}
+
+	button {
+		outline: none;
+		border: none;
+		background-color: transparent;
+		padding: 0;
+	}
+
+	img {
+		max-width: none;
+		/* Prevent tailwind from shrinking images via max-width 100% */
+	}
+}
+
+@layer utilities {
+	.scrollbar-hide {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+
+	.scrollbar-hide::-webkit-scrollbar {
+		display: none;
+	}
+
+	.sansation-light {
+		font-family: "Sansation", sans-serif;
+		font-weight: 300;
+		font-style: normal;
+	}
+
+	.sansation-regular {
+		font-family: "Sansation", sans-serif;
+		font-weight: 400;
+		font-style: normal;
+	}
+
+	.sansation-bold {
+		font-family: "Sansation", sans-serif;
+		font-weight: 700;
+		font-style: normal;
+	}
+
+	.sansation-light-italic {
+		font-family: "Sansation", sans-serif;
+		font-weight: 300;
+		font-style: italic;
+	}
+
+	.sansation-regular-italic {
+		font-family: "Sansation", sans-serif;
+		font-weight: 400;
+		font-style: italic;
+	}
+
+	.sansation-bold-italic {
+		font-family: "Sansation", sans-serif;
+		font-weight: 700;
+		font-style: italic;
+	}
+}
