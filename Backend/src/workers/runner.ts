@@ -12,7 +12,7 @@ import { eq, and, lte, inArray } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import schedule from "node-schedule";
 import pLimit from "p-limit";
-import { db, fromJson, toJson } from "../db/client.js";
+import { db, fromJson, toJson, runMigrations } from "../db/client.js";
 import { jobs } from "../db/schema.js";
 import { config } from "../config.js";
 import { handleEnrichTrack } from "./jobs/enrichTrack.js";
@@ -142,6 +142,11 @@ if (
 	process.argv[1]?.endsWith("runner.ts") ||
 	process.argv[1]?.endsWith("runner.js")
 ) {
+	try {
+		runMigrations();
+	} catch (e) {
+		console.error("Migration error:", e);
+	}
 	console.log(
 		`Worker starting. poll=${config.workerPollMs}ms concurrency=${config.workerConcurrency}`,
 	);

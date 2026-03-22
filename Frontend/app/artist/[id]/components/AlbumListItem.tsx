@@ -3,7 +3,7 @@
 import { FallbackImage } from "@/components/ui/FallbackImage";
 import { IconButton } from "@/components/ui/IconButton";
 import { ActionMenu } from "@/components/ui/ActionMenu";
-import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { useLibraryManager } from "@/hooks/useLibraryManager";
 
 interface AlbumListItemProps {
 	title: string;
@@ -18,15 +18,12 @@ export function AlbumListItem({
 	img,
 	songsCount,
 }: AlbumListItemProps) {
-	const [libraryAlbums, setLibraryAlbums] = useLocalStorage<
-		Record<string, boolean>
-	>("libraryAlbums", {});
+	const { libraryAlbums, toggleAlbumInLibrary } = useLibraryManager();
 
 	const inLibrary = libraryAlbums[title] ?? false;
 
 	const toggleLibrary = () => {
-		const newLibraryState = !inLibrary;
-		setLibraryAlbums({ ...libraryAlbums, [title]: newLibraryState });
+		toggleAlbumInLibrary(title);
 	};
 	return (
 		<div className="flex cursor-pointer items-center gap-6">

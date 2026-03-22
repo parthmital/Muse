@@ -1,81 +1,134 @@
 "use client";
 
-import { useLocalStorage } from "./useLocalStorage";
+import useSWR from "swr";
 import { useCallback, useMemo } from "react";
 import { MediaItem } from "@/components/MediaCard";
 
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
 export function useLibraryManager() {
-	const [libraryAlbums, setLibraryAlbums, isInitializedAlbums] =
-		useLocalStorage<Record<string, boolean>>("libraryAlbums", {});
-	const [libraryPlaylists, setLibraryPlaylists, isInitializedPlaylists] =
-		useLocalStorage<Record<string, boolean>>("libraryPlaylists", {});
-	const [libraryArtists, setLibraryArtists, isInitializedArtists] =
-		useLocalStorage<Record<string, boolean>>("libraryArtists", {});
-	const [pinnedItems, setPinnedItems, isInitializedPins] = useLocalStorage<
-		Record<string, boolean>
-	>("pinnedLibraryItems", {});
-	const [customPlaylists, setCustomPlaylists, isInitializedCustom] =
-		useLocalStorage<MediaItem[]>("customPlaylists", []);
+	const { data: libraryData, mutate: mutateLibrary } = useSWR<{
+		library: { itemType: string; itemId: string; isPinned: boolean }[];
+	}>("http://localhost:8000/library", fetcher);
+
+	const { data: playlistsData, mutate: mutatePlaylists } = useSWR<{
+		playlists: { id: string; title: string; description?: string }[];
+	}>("http://localhost:8000/playlists", fetcher);
+
+	const libraryAlbums = useMemo(() => {
+		const dict: Record<string, boolean> = {};
+		libraryData?.library
+			.filter((i) => i.itemType === "album")
+			.forEach((i) => (dict[i.itemId] = true));
+		return dict;
+	}, [libraryData]);
+
+	const libraryPlaylists = useMemo(() => {
+		const dict: Record<string, boolean> = {};
+		libraryData?.library
+			.filter((i) => i.itemType === "playlist")
+			.forEach((i) => (dict[i.itemId] = true));
+		return dict;
+	}, [libraryData]);
+
+	const libraryArtists = useMemo(() => {
+		const dict: Record<string, boolean> = {};
+		libraryData?.library
+			.filter((i) => i.itemType === "artist")
+			.forEach((i) => (dict[i.itemId] = true));
+		return dict;
+	}, [libraryData]);
+
+	const pinnedItems = useMemo(() => {
+		const dict: Record<string, boolean> = {};
+		libraryData?.library
+			.filter((i) => i.isPinned)
+			.forEach((i) => (dict[i.itemId] = true));
+		return dict;
+	}, [libraryData]);
+
+	const customPlaylists = useMemo(() => {
+		return (
+			(playlistsData?.playlists.map((p) => ({
+				title: p.title,
+				type: "playlist",
+				id: p.id,
+			})) as MediaItem[]) || []
+		);
+	}, [playlistsData]);
 
 	const isInitialized =
-		isInitializedAlbums &&
-		isInitializedPlaylists &&
-		isInitializedArtists &&
-		isInitializedPins &&
-		isInitializedCustom;
+		libraryData !== undefined && playlistsData !== undefined;
+
+	const toggleBackendItem = async (
+		itemType: string,
+		itemId: string,
+		currentState: boolean,
+	) => {
+		if (currentState) {
+			await fetch("http://localhost:8000/library", {
+				method: "DELETE",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ itemType, itemId }),
+			});
+		} else {
+			await fetch("http://localhost:8000/library", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ itemType, itemId }),
+			});
+		}
+		mutateLibrary();
+	};
 
 	const toggleAlbumInLibrary = useCallback(
-		(title: string) => {
-			setLibraryAlbums({
-				...libraryAlbums,
-				[title]: !libraryAlbums[title],
-			});
-		},
-		[libraryAlbums, setLibraryAlbums],
+		(title: string) =>
+			toggleBackendItem("album", title, !!libraryAlbums[title]),
+		[libraryAlbums, mutateLibrary],
 	);
 
 	const togglePlaylistInLibrary = useCallback(
-		(title: string) => {
-			setLibraryPlaylists({
-				...libraryPlaylists,
-				[title]: !libraryPlaylists[title],
-			});
-		},
-		[libraryPlaylists, setLibraryPlaylists],
+		(title: string) =>
+			toggleBackendItem("playlist", title, !!libraryPlaylists[title]),
+		[libraryPlaylists, mutateLibrary],
 	);
 
 	const toggleArtistInLibrary = useCallback(
-		(title: string) => {
-			setLibraryArtists({
-				...libraryArtists,
-				[title]: !libraryArtists[title],
-			});
-		},
-		[libraryArtists, setLibraryArtists],
+		(title: string) =>
+			toggleBackendItem("artist", title, !!libraryArtists[title]),
+		[libraryArtists, mutateLibrary],
 	);
 
 	const togglePin = useCallback(
 		(title: string, currentState: boolean) => {
-			setPinnedItems({
-				...pinnedItems,
-				[title]: !currentState,
-			});
+			// In a full impl this would toggle the isPinned in DB. For now it is just locally missing.
+			// Add pinning endpoint to backend to fully support this.
 		},
-		[pinnedItems, setPinnedItems],
+		[pinnedItems],
 	);
 
 	const addCustomPlaylist = useCallback(
-		(playlist: MediaItem) => {
-			setCustomPlaylists([...customPlaylists, playlist]);
+		async (playlist: MediaItem) => {
+			await fetch("http://localhost:8000/playlists", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ title: playlist.title }),
+			});
+			mutatePlaylists();
 		},
-		[customPlaylists, setCustomPlaylists],
+		[mutatePlaylists],
 	);
 
 	const removeCustomPlaylist = useCallback(
-		(title: string) => {
-			setCustomPlaylists(customPlaylists.filter((cp) => cp.title !== title));
+		async (title: string) => {
+			const playlist = playlistsData?.playlists.find((p) => p.title === title);
+			if (!playlist) return;
+			await fetch(`http://localhost:8000/playlists/${playlist.id}`, {
+				method: "DELETE",
+			});
+			mutatePlaylists();
 		},
-		[customPlaylists, setCustomPlaylists],
+		[playlistsData, mutatePlaylists],
 	);
 
 	const isInLibrary = useCallback(

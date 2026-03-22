@@ -9,8 +9,15 @@ import { usePlaylistManager } from "@/hooks/usePlaylistManager";
 import { formatPlaybackTime } from "@/utils/duration";
 
 export function Player() {
-	const { currentTrack, isPlaying, progress, duration, togglePlay, seek } =
-		usePlayer();
+	const {
+		currentTrack,
+		isPlaying,
+		progress,
+		duration,
+		togglePlay,
+		seek,
+		audioQuality,
+	} = usePlayer();
 
 	const { isSongInPlaylist, toggleSongInPlaylist } = usePlaylistManager();
 
@@ -148,12 +155,19 @@ export function Player() {
 
 				<IconButton icon="Volume" alt="Volume" />
 
-				<TrackInfo
-					className="grow"
-					image={currentTrack?.img || "/images/Random Access Memories.png"}
-					title={currentTrack?.title || "No track selected"}
-					artist={currentTrack?.artist || "Select a song to play"}
-				/>
+				<div className="flex grow items-center gap-3">
+					<TrackInfo
+						className="min-w-0"
+						image={currentTrack?.img || ""}
+						title={currentTrack?.title || "No track selected"}
+						artist={currentTrack?.artist || "Select a song to play"}
+					/>
+					{audioQuality && (
+						<div className="flex shrink-0 items-center rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-bold text-neutral-400 tracking-wider">
+							{audioQuality.replace(/_/g, " ")}
+						</div>
+					)}
+				</div>
 			</div>
 
 			<div className="flex items-center gap-2">

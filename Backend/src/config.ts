@@ -12,12 +12,15 @@ function num(key: string, fallback: number) {
 export const config = {
 	nodeEnv: env("NODE_ENV", "development"),
 	port: num("PORT", 8000),
+	apiBaseUrl: env("API_BASE_URL", "http://localhost:8000"),
 	logLevel: env("LOG_LEVEL", "info"),
 
 	sqlitePath: env("SQLITE_PATH", "./data/music_rec.db"),
 
 	hifiBaseUrl: env("HIFI_API_BASE_URL", ""),
 	hifiApiKey: env("HIFI_API_KEY", ""),
+
+	tidalApiBaseUrl: env("TIDAL_API_BASE_URL", "http://localhost:9000"),
 
 	spotifyClientId: env("SPOTIFY_CLIENT_ID", ""),
 	spotifyClientSecret: env("SPOTIFY_CLIENT_SECRET", ""),

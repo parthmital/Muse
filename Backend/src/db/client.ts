@@ -2,11 +2,15 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import * as schema from "./schema.js";
 import { config } from "../config.js";
 
-function openDb() {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+function openDb(): Database.Database {
 	mkdirSync(dirname(config.sqlitePath), { recursive: true });
 
 	const sqlite = new Database(config.sqlitePath);
@@ -30,7 +34,9 @@ export const db = drizzle(sqlite, { schema });
 // ── Migrations ─────────────────────────────────────────────────────────────────
 // Run with: drizzle-kit push (dev) or drizzle-kit generate + migrate (prod)
 export function runMigrations() {
-	migrate(db, { migrationsFolder: "./drizzle" });
+	// Root project root for drizzle folder: Backend/drizzle
+	const migrationsPath = join(__dirname, "../../drizzle");
+	migrate(db, { migrationsFolder: migrationsPath });
 }
 
 // ── Typed JSON helpers ─────────────────────────────────────────────────────────
@@ -48,5 +54,3 @@ export function fromJson<T>(value: string | null | undefined, fallback: T): T {
 		return fallback;
 	}
 }
-
-export { sqlite };

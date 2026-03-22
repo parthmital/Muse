@@ -60,6 +60,8 @@ export function IconButton({
 	disabled = false,
 	noHover = false,
 }: IconButtonProps) {
+	if (!icon || icon === "undefined") return null;
+
 	// Only use filled version if it exists for this icon
 	const useFilled = filled && ICONS_WITH_FILLED_VERSIONS.has(icon);
 	let filledValue = useFilled ? "Yes" : "No";

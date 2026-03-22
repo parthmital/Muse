@@ -16,7 +16,7 @@ import { useDialogState } from "@/hooks/useDialogState";
 import { useSorting } from "@/hooks/useSorting";
 import { LibrarySkeleton } from "@/components/ui/Skeletons";
 
-import { ALL_LIBRARY_ITEMS } from "@/data/library";
+// We no longer rely on ANY static data.
 
 function LibraryContentInner() {
 	const searchParams = useSearchParams();
@@ -40,7 +40,7 @@ function LibraryContentInner() {
 		removeCustomPlaylist,
 	} = useLibraryManager();
 
-	const allItems = [...ALL_LIBRARY_ITEMS, ...customPlaylists];
+	const allItems = [...customPlaylists];
 
 	const { setSearchQuery, filteredItems } = useSearchFilter(
 		allItems,
@@ -170,7 +170,7 @@ function LibraryContentInner() {
 
 									<div className="min-w-0 flex-1">
 										<TrackInfo
-											image={`/images/${item.title}.png`}
+											image={item.imageUrl || ""}
 											title={item.title}
 											artist={
 												item.type === "artist"

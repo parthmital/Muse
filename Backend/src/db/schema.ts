@@ -201,3 +201,81 @@ export const recommendations = sqliteTable(
 		userSurfaceIdx: index("rec_user_surface_idx").on(t.userId, t.surface),
 	}),
 );
+
+// ── User Library ──────────────────────────────────────────────────────────────
+export const userLibrary = sqliteTable(
+	"user_library",
+	{
+		id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id),
+		itemType: text("item_type").notNull(), // 'track', 'album', 'artist', 'playlist'
+		itemId: text("item_id").notNull(), // id of the track/album/artist/playlist
+		addedAt: integer("added_at").default(now() as any),
+		isPinned: integer("is_pinned", { mode: "boolean" }).default(false),
+	},
+	(t) => ({
+		userLibraryIdx: index("user_library_idx").on(
+			t.userId,
+			t.itemType,
+			t.itemId,
+		),
+		userLibraryUnique: uniqueIndex("user_library_unique").on(
+			t.userId,
+			t.itemType,
+			t.itemId,
+		),
+	}),
+);
+
+// ── Playlists ─────────────────────────────────────────────────────────────────
+export const playlists = sqliteTable("playlists", {
+	id: text("id").primaryKey(),
+	userId: text("user_id")
+		.notNull()
+		.references(() => users.id),
+	title: text("title").notNull(),
+	description: text("description"),
+	coverUrl: text("cover_url"),
+	createdAt: integer("created_at").default(now() as any),
+	updatedAt: integer("updated_at").default(now() as any),
+});
+
+export const playlistTracks = sqliteTable(
+	"playlist_tracks",
+	{
+		id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+		playlistId: text("playlist_id")
+			.notNull()
+			.references(() => playlists.id, { onDelete: "cascade" }),
+		trackId: text("track_id")
+			.notNull()
+			.references(() => tracks.id, { onDelete: "cascade" }),
+		position: integer("position").notNull(),
+		addedAt: integer("added_at").default(now() as any),
+	},
+	(t) => ({
+		playlistTrackIdx: index("playlist_track_idx").on(t.playlistId, t.position),
+	}),
+);
+
+// ── Search History ────────────────────────────────────────────────────────────
+export const searchHistory = sqliteTable(
+	"search_history",
+	{
+		id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id),
+		query: text("query"),
+		itemType: text("item_type"), // artist, album, track, playlist
+		itemId: text("item_id"),
+		imageUrl: text("image_url"),
+		metadata: jsonCol("metadata"), // title, artist name, etc for fast display
+		searchedAt: integer("searched_at").default(now() as any),
+	},
+	(t) => ({
+		userTimeIdx: index("sh_user_time_idx").on(t.userId, t.searchedAt),
+	}),
+);

@@ -28,7 +28,7 @@ const TOP_TRACKS: Song[] = [
 		artist: "Linkin Park",
 		album: "Meteora",
 		duration: "3:05",
-		img: "/images/Meteora.png",
+		img: "",
 		liked: true,
 	},
 	{
@@ -36,7 +36,7 @@ const TOP_TRACKS: Song[] = [
 		artist: "Daft Punk",
 		album: "Random Access Memories",
 		duration: "6:09",
-		img: "/images/Daily Mix 2.png",
+		img: "",
 		liked: false,
 	},
 	{
@@ -44,7 +44,7 @@ const TOP_TRACKS: Song[] = [
 		artist: "Muse",
 		album: "Black Holes and Revelations",
 		duration: "4:00",
-		img: "/images/Black Holes and Revelations.png",
+		img: "",
 		liked: true,
 	},
 	{
@@ -52,7 +52,7 @@ const TOP_TRACKS: Song[] = [
 		artist: "David Bowie",
 		album: "The Rise and Fall of Ziggy Stardust",
 		duration: "4:10",
-		img: "/images/Search/Pop.png",
+		img: "",
 		liked: false,
 	},
 	{
@@ -60,7 +60,7 @@ const TOP_TRACKS: Song[] = [
 		artist: "Eminem",
 		album: "8 Mile",
 		duration: "5:26",
-		img: "/images/Daily Mix 3.png",
+		img: "",
 		liked: true,
 	},
 	{
@@ -68,7 +68,7 @@ const TOP_TRACKS: Song[] = [
 		artist: "Linkin Park",
 		album: "Hybrid Theory",
 		duration: "3:36",
-		img: "/images/Hybrid Theory.png",
+		img: "",
 		liked: false,
 	},
 	{
@@ -76,7 +76,7 @@ const TOP_TRACKS: Song[] = [
 		artist: "Daft Punk",
 		album: "Random Access Memories",
 		duration: "5:37",
-		img: "/images/Random Access Memories.png",
+		img: "",
 		liked: true,
 	},
 	{
@@ -84,7 +84,7 @@ const TOP_TRACKS: Song[] = [
 		artist: "Muse",
 		album: "Black Holes and Revelations",
 		duration: "3:29",
-		img: "/images/Black Holes and Revelations.png",
+		img: "",
 		liked: false,
 	},
 	{
@@ -92,7 +92,7 @@ const TOP_TRACKS: Song[] = [
 		artist: "System Of A Down",
 		album: "Toxicity",
 		duration: "3:30",
-		img: "/images/Daily Mix 1.png",
+		img: "",
 		liked: true,
 	},
 	{
@@ -100,7 +100,7 @@ const TOP_TRACKS: Song[] = [
 		artist: "Gorillaz",
 		album: "Demon Days",
 		duration: "3:41",
-		img: "/images/Daily Mix 2.png",
+		img: "",
 		liked: false,
 	},
 ];

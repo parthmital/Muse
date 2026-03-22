@@ -23,22 +23,23 @@ export function ArtistMediaContent({
 		<section className="flex flex-col gap-6">
 			{viewMode === "Grid" ? (
 				<div className="flex flex-wrap gap-6">
-					{items.map((item) => (
+					{items.map((item, index) => (
 						<MediaCard
-							key={item.title}
+							key={`${item.title}-${index}`}
 							item={{
 								type: "album",
 								title: item.title,
 								artist: item.year,
 								songs: item.songsCount,
+								imageUrl: item.img,
 							}}
 						/>
 					))}
 				</div>
 			) : (
 				<div className="flex flex-col gap-8">
-					{items.map((item) => (
-						<AlbumListItem key={item.title} {...item} />
+					{items.map((item, index) => (
+						<AlbumListItem key={`${item.title}-${index}`} {...item} />
 					))}
 				</div>
 			)}

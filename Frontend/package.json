@@ -9,10 +9,12 @@
 		"lint": "eslint"
 	},
 	"dependencies": {
+		"dashjs": "^4.7.4",
 		"fast-average-color": "^9.5.0",
 		"next": "^16.1.6",
 		"react": "19.2.3",
-		"react-dom": "19.2.3"
+		"react-dom": "19.2.3",
+		"swr": "^2.4.1"
 	},
 	"devDependencies": {
 		"@tailwindcss/postcss": "^4.1.18",

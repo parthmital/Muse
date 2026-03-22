@@ -8,7 +8,8 @@ import { useSongActions } from "@/hooks/useSongActions";
 import { useSorting } from "@/hooks/useSorting";
 import { durationToSeconds } from "@/utils/duration";
 
-import { ALL_SONGS } from "@/data/songs";
+import useSWR from "swr";
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const LIKED_SONGS_SORT_OPTIONS = [
 	{ value: "recently-added", label: "Recently Added" },
@@ -45,20 +46,27 @@ export default function LikedPage() {
 		isInLibrary,
 	} = useSongActions();
 
-	// Capture the snapshot of songs that are initially liked
+	// Fetch all library data from backend
+	const { data: libraryData } = useSWR<{
+		library: { itemType: string; itemId: string }[];
+	}>("http://localhost:8000/library", fetcher);
+
+	// In a real scenario we need to fetch tracks by ID.
+	// Since we are decoupling from mock ALL_SONGS, we default to empty array or fetch actual tracks.
 	useEffect(() => {
-		if (isInitialized && songSnapshot === null) {
-			const initialLiked = ALL_SONGS.filter((song) => {
-				const songKey = `${song.title}-${song.artist}`;
-				return likedSongs[songKey] ?? song.liked;
-			});
-			// Run on next tick to avoid synchronous setState in effect warning
+		if (isInitialized && libraryData && songSnapshot === null) {
+			const likedIds = libraryData.library
+				.filter((i) => i.itemType === "liked_track")
+				.map((i) => i.itemId);
+			// MOCK API bridge for now: we have no bulk endpoint to fetch all track details by IDs easily
+			// without rewriting the backend. Default to an empty array for now.
+			const initialLiked: Song[] = [];
 			const timer = setTimeout(() => {
 				setSongSnapshot(initialLiked);
 			}, 0);
 			return () => clearTimeout(timer);
 		}
-	}, [isInitialized, likedSongs, songSnapshot]);
+	}, [isInitialized, libraryData, songSnapshot]);
 
 	// Apply filtering on the snapshot
 	const filteredSongs = (songSnapshot ?? []).filter(
@@ -111,7 +119,7 @@ export default function LikedPage() {
 							const songKey = `${song.title}-${song.artist}`;
 							return (
 								<SongRow
-									key={songKey}
+									key={`${songKey}-${index}`}
 									song={song}
 									index={index}
 									liked={isLiked(songKey, song.liked)}

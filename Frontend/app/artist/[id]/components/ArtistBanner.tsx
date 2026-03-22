@@ -3,7 +3,7 @@
 import { FallbackImage } from "@/components/ui/FallbackImage";
 import { IconButton } from "@/components/ui/IconButton";
 import { ActionMenu } from "@/components/ui/ActionMenu";
-import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { useLibraryManager } from "@/hooks/useLibraryManager";
 import { usePlayer } from "@/context/PlayerContext";
 import { useMemo } from "react";
 import { Song } from "@/components/SongRow";
@@ -13,6 +13,7 @@ interface ArtistBannerProps {
 	listenerCount: string;
 	onPlay?: () => void;
 	artistSongs?: Song[];
+	artistPicture?: string;
 }
 
 export function ArtistBanner({
@@ -20,11 +21,10 @@ export function ArtistBanner({
 	listenerCount,
 	onPlay,
 	artistSongs = [],
+	artistPicture,
 }: ArtistBannerProps) {
 	const { currentTrack, isPlaying } = usePlayer();
-	const [libraryArtists, setLibraryArtists] = useLocalStorage<
-		Record<string, boolean>
-	>("libraryArtists", {});
+	const { libraryArtists, toggleArtistInLibrary } = useLibraryManager();
 
 	const isFollowing = libraryArtists[title] ?? false;
 
@@ -40,8 +40,7 @@ export function ArtistBanner({
 	);
 
 	const toggleFollow = () => {
-		const newFollowState = !isFollowing;
-		setLibraryArtists({ ...libraryArtists, [title]: newFollowState });
+		toggleArtistInLibrary(title);
 	};
 
 	const playIcon = isThisArtistPlaying ? "Pause" : "Play";
@@ -49,11 +48,12 @@ export function ArtistBanner({
 	return (
 		<div className="relative h-96 w-full overflow-hidden rounded-lg p-6">
 			<FallbackImage
-				src="/art/Daft Punk Backdrop.png"
+				src={artistPicture || ""}
 				alt={title}
 				fill
 				className="object-cover"
 				priority
+				loading="eager"
 				fallbackType="Artist"
 			/>
 			<div className="absolute inset-0 bg-linear-to-t from-neutral-800 via-neutral-800/40 to-transparent" />

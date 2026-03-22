@@ -15,6 +15,11 @@ export interface Song {
 	duration: string;
 	img: string;
 	liked: boolean;
+	// Tidal integration fields (optional, backward-compatible)
+	tidalId?: number;
+	tidalArtistId?: number;
+	tidalAlbumId?: number;
+	streamUrl?: string;
 }
 
 export const GRID_COLUMNS_WITH_ALBUM = "grid-cols-song-list-6";
@@ -39,7 +44,7 @@ export function SongRow({
 }) {
 	const { playTrack, currentTrack, isPlaying } = usePlayer();
 
-	// Use song title + artist as unique key for localStorage
+	// Use song title + artist as unique key
 	const songKey = `${song.title}-${song.artist}`;
 
 	const isCurrentTrack =

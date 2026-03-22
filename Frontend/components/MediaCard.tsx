@@ -14,6 +14,9 @@ export interface MediaItem {
 	desc?: string;
 	artist?: string;
 	pinned?: boolean;
+	// Tidal integration fields (optional, backward-compatible)
+	tidalId?: number;
+	imageUrl?: string;
 }
 
 interface MediaCardProps {
@@ -22,12 +25,15 @@ interface MediaCardProps {
 
 export function MediaCard({ item }: MediaCardProps) {
 	const inferredType = item.type || "mix";
+	const routeId = item.tidalId
+		? String(item.tidalId)
+		: encodeURIComponent(item.title);
 	const href =
 		inferredType === "artist"
-			? `/artist/${encodeURIComponent(item.title)}`
+			? `/artist/${routeId}`
 			: inferredType === "album"
-				? `/album/${encodeURIComponent(item.title)}`
-				: `/playlist/${encodeURIComponent(item.title)}`;
+				? `/album/${routeId}`
+				: `/playlist/${routeId}`;
 
 	const fallbackMap: Record<MediaType, "Playlist" | "Album" | "Artist"> = {
 		playlist: "Playlist",
@@ -36,7 +42,7 @@ export function MediaCard({ item }: MediaCardProps) {
 		artist: "Artist",
 	};
 
-	const src = `/images/${item.title}.png`;
+	const src = item.imageUrl || "";
 
 	const extractedColor = useColorExtraction({
 		src,

@@ -1,40 +1,67 @@
 "use client";
 
-import { useLocalStorage } from "./useLocalStorage";
+import useSWR from "swr";
 import { useCallback, useMemo } from "react";
 
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
 /**
- * Manages liked songs and library songs localStorage state.
- * Consolidates the repeated patterns from album, playlist, and liked pages.
+ * Manages liked songs and library songs via SWR.
  */
 export function useSongActions() {
-	const [likedSongs, setLikedSongs] = useLocalStorage<Record<string, boolean>>(
-		"likedSongs",
-		{},
-	);
-	const [librarySongs, setLibrarySongs] = useLocalStorage<
-		Record<string, boolean>
-	>("librarySongs", {});
+	const { data: libraryData, mutate: mutateLibrary } = useSWR<{
+		library: { itemType: string; itemId: string; isPinned: boolean }[];
+	}>("http://localhost:8000/library", fetcher);
 
-	const [, , isInitializedLikes] = useLocalStorage("likedSongs", {});
-	const [, , isInitializedSongs] = useLocalStorage("librarySongs", {});
+	const isInitialized = libraryData !== undefined;
 
-	const isInitialized = isInitializedLikes && isInitializedSongs;
+	const likedSongs = useMemo(() => {
+		const dict: Record<string, boolean> = {};
+		libraryData?.library
+			.filter((i) => i.itemType === "liked_track")
+			.forEach((i) => (dict[i.itemId] = true));
+		return dict;
+	}, [libraryData]);
+
+	const librarySongs = useMemo(() => {
+		const dict: Record<string, boolean> = {};
+		libraryData?.library
+			.filter((i) => i.itemType === "library_track")
+			.forEach((i) => (dict[i.itemId] = true));
+		return dict;
+	}, [libraryData]);
+
+	const toggleBackendItem = async (
+		itemType: string,
+		itemId: string,
+		currentState: boolean,
+	) => {
+		if (currentState) {
+			await fetch("http://localhost:8000/library", {
+				method: "DELETE",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ itemType, itemId }),
+			});
+		} else {
+			await fetch("http://localhost:8000/library", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ itemType, itemId }),
+			});
+		}
+		mutateLibrary();
+	};
 
 	const toggleLike = useCallback(
-		(songKey: string) => {
-			const newLikedState = !likedSongs[songKey];
-			setLikedSongs({ ...likedSongs, [songKey]: newLikedState });
-		},
-		[likedSongs, setLikedSongs],
+		(songKey: string) =>
+			toggleBackendItem("liked_track", songKey, !!likedSongs[songKey]),
+		[likedSongs, mutateLibrary],
 	);
 
 	const toggleLibrary = useCallback(
-		(songKey: string) => {
-			const newLibraryState = !librarySongs[songKey];
-			setLibrarySongs({ ...librarySongs, [songKey]: newLibraryState });
-		},
-		[librarySongs, setLibrarySongs],
+		(songKey: string) =>
+			toggleBackendItem("library_track", songKey, !!librarySongs[songKey]),
+		[librarySongs, mutateLibrary],
 	);
 
 	const isLiked = useCallback(

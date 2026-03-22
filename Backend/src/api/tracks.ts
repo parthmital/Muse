@@ -27,7 +27,7 @@ export async function trackRoutes(app: FastifyInstance) {
 						.where(
 							inArray(
 								tracks.id,
-								apiTracks.map((t) => t.id),
+								apiTracks.map((t) => String(t.id)),
 							),
 						)
 				).map((r) => r.id),
@@ -35,14 +35,15 @@ export async function trackRoutes(app: FastifyInstance) {
 
 			let newCount = 0;
 			for (const t of apiTracks) {
-				if (existing.has(t.id)) continue;
+				const trackIdStr = String(t.id);
+				if (existing.has(trackIdStr)) continue;
 
 				// Upsert artist
 				if (t.artist?.id) {
 					await db
 						.insert(artists)
 						.values({
-							id: t.artist.id,
+							id: String(t.artist.id),
 							name: t.artist.name,
 							popularity: t.artist.popularity,
 							pictureUrl: t.artist.picture,
@@ -56,7 +57,7 @@ export async function trackRoutes(app: FastifyInstance) {
 					await db
 						.insert(albums)
 						.values({
-							id: t.album.id,
+							id: String(t.album.id),
 							title: t.album.title,
 							coverUrl: t.album.cover,
 							vibrantColor: t.album.vibrantColor,
@@ -69,7 +70,7 @@ export async function trackRoutes(app: FastifyInstance) {
 				await db
 					.insert(tracks)
 					.values({
-						id: t.id,
+						id: trackIdStr,
 						title: t.title,
 						duration: t.duration,
 						bpm: t.bpm,
@@ -81,8 +82,8 @@ export async function trackRoutes(app: FastifyInstance) {
 						isrc: t.isrc,
 						mixIds: toJson(t.mixes),
 						rawApiData: toJson(t),
-						artistId: t.artist?.id,
-						albumId: t.album?.id,
+						artistId: t.artist?.id ? String(t.artist.id) : null,
+						albumId: t.album?.id ? String(t.album.id) : null,
 					})
 					.onConflictDoNothing();
 
@@ -90,12 +91,12 @@ export async function trackRoutes(app: FastifyInstance) {
 				await db
 					.insert(trackFeatures)
 					.values({
-						trackId: t.id,
+						trackId: trackIdStr,
 						enrichmentStatus: "pending",
 					})
 					.onConflictDoNothing();
 
-				scheduleEnrichTrack(t.id);
+				scheduleEnrichTrack(trackIdStr);
 				newCount++;
 			}
 

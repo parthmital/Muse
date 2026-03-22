@@ -7,74 +7,21 @@ import { MediaCard, MediaItem } from "@/components/MediaCard";
 import { CategoryCard } from "@/components/CategoryCard";
 import { ScrollContainer } from "@/components/ui/ScrollContainer";
 import { SectionHeader } from "@/components/SectionHeader";
-import { SongRow } from "@/components/SongRow";
+import { SongRow, Song } from "@/components/SongRow";
 import { FilterBar } from "@/components/FilterBar";
 import { MediaGrid } from "@/components/MediaGrid";
-import { ALL_SONGS } from "@/data/songs";
-import { ALL_LIBRARY_ITEMS } from "@/data/library";
 import { SearchSkeleton } from "@/components/ui/Skeletons";
+import { useTidalSearch } from "@/hooks/useTidalSearch";
+import {
+	tidalTrackToSong,
+	tidalAlbumToMediaItem,
+	tidalArtistToMediaItem,
+} from "@/lib/tidalAdapter";
 
-const SEARCH_SECTIONS = [
-	{
-		title: "Discover",
-		items: [
-			"Made For You",
-			"New Releases",
-			"Charts",
-			"Trending",
-			"Discover",
-			"Singles",
-			"Decades",
-		],
-	},
-	{
-		title: "Genres",
-		items: [
-			"Pop",
-			"Country",
-			"Hip-Hop",
-			"Rock",
-			"Indie",
-			"Punk",
-			"Metal",
-			"Instrumental",
-		],
-	},
-	{
-		title: "Mood & Activity",
-		items: [
-			"In The Car",
-			"Mood",
-			"Workout",
-			"Chill",
-			"Sleep",
-			"Party",
-			"At Home",
-			"Focus",
-		],
-	},
-	{
-		title: "Entertainment",
-		items: ["Netflix", "Anime", "Disney", "Gaming"],
-	},
-];
+// No fallbacks, exclusively backend.
 
-const RECENT_SEARCHES: MediaItem[] = [
-	{ title: "Daft Punk", type: "artist" },
-	{ title: "David Bowie", type: "artist" },
-	{
-		title: "Black Holes and Revelations",
-		artist: "Muse",
-		songs: 11,
-		type: "album",
-	},
-	{
-		title: "Discover Weekly",
-		songs: 50,
-		desc: "Your weekly mixtape of fresh music.",
-		type: "mix",
-	},
-];
+import { getSearchSections, getRecentSearches } from "@/lib/api";
+import useSWR from "swr";
 
 function CategoryRow({ title, items }: { title: string; items: string[] }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
@@ -87,8 +34,8 @@ function CategoryRow({ title, items }: { title: string; items: string[] }) {
 				titleClassName="text-lg font-medium"
 			/>
 			<ScrollContainer ref={scrollRef}>
-				{items.map((item) => (
-					<CategoryCard key={item} title={item} />
+				{items.map((item, index) => (
+					<CategoryCard key={`${item}-${index}`} title={item} />
 				))}
 			</ScrollContainer>
 		</div>
@@ -102,29 +49,38 @@ function SearchContentInner() {
 	const query = searchParams.get("q") || "";
 	const [activeFilter, setActiveFilter] = useState("All");
 
-	const filteredSongs = query
-		? ALL_SONGS.filter(
-				(s) =>
-					s.title.toLowerCase().includes(query.toLowerCase()) ||
-					s.artist.toLowerCase().includes(query.toLowerCase()),
-			)
-		: ALL_SONGS;
+	const { data: sectionsData } = useSWR("search-sections", getSearchSections);
+	const { data: recentData } = useSWR("recent-searches", getRecentSearches);
 
-	const filteredMedia = query
-		? ALL_LIBRARY_ITEMS.filter(
-				(m) =>
-					m.title.toLowerCase().includes(query.toLowerCase()) ||
-					(m.artist && m.artist.toLowerCase().includes(query.toLowerCase())),
-			)
-		: ALL_LIBRARY_ITEMS;
+	const searchSections = sectionsData?.categories || [];
+	const recentSearches = recentData?.items || [];
 
-	const artists = filteredMedia.filter((m) => m.type === "artist");
-	const albums = filteredMedia.filter((m) => m.type === "album");
-	const playlists = filteredMedia.filter((m) => m.type === "mix");
+	// Live Tidal search
+	const tidalResults = useTidalSearch(query);
+
+	// Convert Tidal results to existing component interfaces
+	const tidalSongs: Song[] = (tidalResults.tracks || []).map(tidalTrackToSong);
+	const tidalArtists: MediaItem[] = (tidalResults.artists || []).map(
+		tidalArtistToMediaItem,
+	);
+	const tidalAlbums: MediaItem[] = (tidalResults.albums || []).map(
+		tidalAlbumToMediaItem,
+	);
+
+	// Determine which data source to use:
+	const hasResults =
+		tidalSongs.length > 0 || tidalArtists.length > 0 || tidalAlbums.length > 0;
+
+	const filteredSongs = tidalSongs;
+	const artists = tidalArtists;
+	const albums = tidalAlbums;
+	const playlists = tidalResults.playlists || [];
+
+	// Build top result for "All" view
+	const topResultItem: MediaItem | null =
+		tidalArtists[0] ?? tidalAlbums[0] ?? null;
 
 	if (query) {
-		const hasResults = filteredSongs.length > 0 || filteredMedia.length > 0;
-
 		return (
 			<div className="flex flex-col gap-6">
 				<FilterBar
@@ -133,7 +89,20 @@ function SearchContentInner() {
 					onFilterChange={setActiveFilter}
 				/>
 
-				{activeFilter === "All" && !hasResults ? (
+				{tidalResults.isLoading && (
+					<div className="flex items-center gap-2 text-neutral-500">
+						<div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-500 border-t-transparent" />
+						Searching TIDAL...
+					</div>
+				)}
+
+				{tidalResults.error && (
+					<div className="text-sm text-red-400">
+						Search error: {tidalResults.error}. Showing local results.
+					</div>
+				)}
+
+				{activeFilter === "All" && !hasResults && !tidalResults.isLoading ? (
 					<div className="flex flex-col items-center justify-center gap-2 py-20 text-center">
 						<p className="text-xl font-bold text-white">
 							No results found for &quot;{query}&quot;
@@ -145,7 +114,7 @@ function SearchContentInner() {
 					</div>
 				) : (
 					<>
-						{activeFilter === "All" && filteredMedia.length > 0 && (
+						{activeFilter === "All" && topResultItem && (
 							<div className="flex flex-col gap-4">
 								<SectionHeader
 									title="Top Result"
@@ -153,7 +122,7 @@ function SearchContentInner() {
 									controls={false}
 								/>
 								<div className="w-96">
-									<MediaCard item={filteredMedia[0]} />
+									<MediaCard item={topResultItem} />
 								</div>
 							</div>
 						)}
@@ -169,7 +138,11 @@ function SearchContentInner() {
 								<div className="flex flex-col gap-2">
 									{filteredSongs.length > 0 ? (
 										filteredSongs.map((song, i) => (
-											<SongRow key={i} song={song} index={i} />
+											<SongRow
+												key={`${song.title}-${i}`}
+												song={song}
+												index={i}
+											/>
 										))
 									) : (
 										<div className="text-neutral-500">
@@ -271,9 +244,9 @@ function SearchContentInner() {
 
 	return (
 		<div className="flex flex-col gap-6">
-			<MediaShelf title="Recent Searches" items={RECENT_SEARCHES} />
+			<MediaShelf title="Recent Searches" items={recentSearches} />
 			<p className="text-xl font-bold text-white">Browse All</p>
-			{SEARCH_SECTIONS.map((section) => (
+			{searchSections.map((section: { title: string; items: string[] }) => (
 				<CategoryRow
 					key={section.title}
 					title={section.title}

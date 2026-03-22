@@ -7,6 +7,10 @@ import { interactionsRoutes } from "./api/interactions.js";
 import { recommendationRoutes } from "./api/recommendations.js";
 import { trackRoutes } from "./api/tracks.js";
 import { userRoutes } from "./api/users.js";
+import { tidalRoutes } from "./api/tidal.js";
+import { libraryRoutes } from "./api/library.js";
+import { browseRoutes } from "./api/browse.js";
+import { runMigrations } from "./db/client.js";
 import { embeddingClient } from "./services/embeddingClient.js";
 
 const app = Fastify({
@@ -19,7 +23,14 @@ const app = Fastify({
 	},
 });
 
-await app.register(cors, { origin: config.nodeEnv === "development" });
+// Run DB migrations
+try {
+	runMigrations();
+} catch (e) {
+	console.error("Migration error:", e);
+}
+
+await app.register(cors, { origin: true });
 
 await app.register(swagger, {
 	openapi: {
@@ -33,6 +44,9 @@ await app.register(interactionsRoutes);
 await app.register(recommendationRoutes);
 await app.register(trackRoutes);
 await app.register(userRoutes);
+await app.register(tidalRoutes);
+await app.register(libraryRoutes);
+await app.register(browseRoutes);
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get("/health", async () => {

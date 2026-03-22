@@ -1,125 +1,38 @@
 # Dependencies
 node_modules/
-*/node_modules/
+**/node_modules/
 
 # Build outputs
+.next/
 dist/
 build/
-.next/
 out/
-
-# Environment files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-# Runtime data
-pids
-*.pid
-*.seed
-
-# Coverage directory used by tools like istanbul
-coverage/
-*.lcov
-
-# nyc test coverage
-.nyc_output
-
-# TypeScript
 *.tsbuildinfo
 
-# Cache
-.cache/
-.parcel-cache/
-.eslintcache
-.stylelintcache
+# Local Environment
+.env
+.env.local
+.env.*.local
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Database
+# Database / Runtime Data
+data/
 *.db
 *.sqlite
 *.sqlite3
 
-# Media files
-*.m4a
-*.png
-
-# Temporary files
-*.tmp
-*.temp
-
-# Lock files (keep package-lock.json but ignore others)
-yarn.lock
-pnpm-lock.yaml
-
-# Build artifacts
-*.tgz
-*.tar.gz
-
-# Testing
-.jest/
-test-results/
-playwright-report/
-test-results.xml
-
-# Misc
-.history
-
-# Python
+# Python specific
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual environments
+**/__pycache__/
 .venv/
 venv/
 ENV/
 env/
+*.py[cod]
 
-# Project specific
-data/
-Backend/data/
-Backend/python/__pycache__/
-Backend/python/venv/
-Backend/python/.venv/
+# IDE specific
+.vscode/
+.idea/
+
+# OS specific
+.DS_Store
+Thumbs.db

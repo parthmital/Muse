@@ -10,7 +10,7 @@ interface CategoryCardProps {
 
 export function CategoryCard({ title }: CategoryCardProps) {
 	const extractedColor = useColorExtraction({
-		src: `/search/${title}.png`,
+		src: "",
 		mode: "darken",
 	});
 
@@ -22,7 +22,7 @@ export function CategoryCard({ title }: CategoryCardProps) {
 			<span className="text-xl font-bold text-white">{title}</span>
 			<div className="absolute -right-4 -bottom-2 h-24 w-24 rotate-30">
 				<FallbackImage
-					src={`/search/${title}.png`}
+					src=""
 					alt={title}
 					fill
 					className="rounded-lg object-cover shadow-lg shadow-black/30"

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, use } from "react";
+import { useState, use, useEffect } from "react";
 
 import { ArtistBanner } from "./components/ArtistBanner";
 import { ArtistTabs } from "./components/ArtistTabs";
 import { usePlayer } from "@/context/PlayerContext";
+import { Song } from "@/components/SongRow";
 import { ArtistHomeContent } from "./components/ArtistHomeContent";
 import { ArtistMediaContent, Album } from "./components/ArtistMediaContent";
 import { ArtistSidebar } from "./components/ArtistSidebar";
@@ -17,89 +18,8 @@ const TABS = [
 	"Features & More",
 ];
 
-const MOCK_ALBUMS: Album[] = [
-	{
-		title: "Random Access Memories",
-		year: "2013",
-		img: "/images/Random Access Memories.png",
-		songsCount: 13,
-	},
-	{
-		title: "Tron: Legacy",
-		year: "2010",
-		img: "/images/Discovery.png",
-		songsCount: 22,
-	},
-	{
-		title: "Alive 2007",
-		year: "2007",
-		img: "/images/Discovery.png",
-		songsCount: 12,
-	},
-	{
-		title: "Human After All",
-		year: "2005",
-		img: "/images/Discovery.png",
-		songsCount: 10,
-	},
-	{
-		title: "Discovery",
-		year: "2001",
-		img: "/images/Discovery.png",
-		songsCount: 14,
-	},
-	{
-		title: "Homework",
-		year: "1997",
-		img: "/images/Discovery.png",
-		songsCount: 16,
-	},
-];
-
-const MOCK_SINGLES: Album[] = [
-	{
-		title: "Get Lucky (Remixes)",
-		year: "2013",
-		img: "/images/Random Access Memories.png",
-		songsCount: 4,
-	},
-	{
-		title: "One More Time",
-		year: "2000",
-		img: "/images/Discovery.png",
-		songsCount: 3,
-	},
-];
-
-const MOCK_COMPILATIONS: Album[] = [
-	{
-		title: "Musique Vol. 1 1993–2005",
-		year: "2006",
-		img: "/images/Discovery.png",
-		songsCount: 15,
-	},
-];
-
-const MOCK_FEATURES: Album[] = [
-	{
-		title: "Starboy",
-		year: "2016",
-		img: "/images/Discovery.png",
-		songsCount: 18,
-	},
-];
-
-import { ALL_SONGS } from "@/data/songs";
-
-const BIOGRAPHY =
-	'Daft Punk was a highly influential French electronic music duo consisting of Thomas Bangalter and Guy-Manuel de Homem-Christo. Emerging in the 1990s French house scene, they became global icons known for their robot personas and groundbreaking albums like Homework, Discovery, and the Grammy-winning Random Access Memories. Over a three-decade career, they redefined dance music with hits like "Around the World," "One More Time," and "Get Lucky."';
-const TAGS = [
-	"Funk",
-	"Electronic music",
-	"Disco",
-	"Soft Rock",
-	"Progressive pop",
-];
+import { getArtist } from "@/lib/api";
+import { tidalAlbumToMediaItem, tidalTrackToSong } from "@/lib/tidalAdapter";
 
 export default function ArtistPage({
 	params,
@@ -109,14 +29,25 @@ export default function ArtistPage({
 	const { id } = use(params);
 	const title = decodeURIComponent(id);
 
-	// Filter songs for this artist from the central list
-	const artistSongs = ALL_SONGS.filter((s) => s.artist === title);
-	// derive most played and popular from artistSongs
-	const mostPlayed =
-		artistSongs.length > 0 ? artistSongs.slice(0, 5) : ALL_SONGS.slice(0, 5);
-	const popular = (
-		artistSongs.length > 0 ? artistSongs : ALL_SONGS.slice(0, 5)
-	).map((s) => ({ ...s, streams: "1,234,567,890" }));
+	const [artistData, setArtistData] = useState<any>(null);
+	const [isLoading, setIsLoading] = useState(true);
+
+	useEffect(() => {
+		getArtist(Number(id))
+			.then((data) => {
+				setArtistData(data);
+				setIsLoading(false);
+			})
+			.catch(() => {
+				setIsLoading(false);
+			});
+	}, [id]);
+
+	const artistSongs = artistData
+		? artistData.topTracks.map(tidalTrackToSong)
+		: [];
+	const mostPlayed = artistSongs.slice(0, 5);
+	const popular = artistSongs;
 	const { playTrack } = usePlayer();
 
 	const [activeTab, setActiveTab] = useState("Home");
@@ -124,21 +55,29 @@ export default function ArtistPage({
 	const [searchQuery, setSearchQuery] = useState("");
 	const [viewMode, setViewMode] = useState<"Grid" | "List">("Grid");
 
-	const filteredMostPlayed = mostPlayed.filter((song) =>
+	const filteredMostPlayed = mostPlayed.filter((song: Song) =>
 		song.title.toLowerCase().includes(searchQuery.toLowerCase()),
 	);
 
-	const filteredPopular = popular.filter((song) =>
+	const filteredPopular = popular.filter((song: Song) =>
 		song.title.toLowerCase().includes(searchQuery.toLowerCase()),
 	);
 
-	const filterAlbum = (album: Album) =>
+	const albumsRaw = artistData?.albums || [];
+	const mappedAlbums = albumsRaw.map((a: any) => ({
+		title: a.title,
+		year: a.releaseDate?.substring(0, 4) || "",
+		img: a.cover,
+		songsCount: a.numberOfTracks || 0,
+	}));
+
+	const filterAlbum = (album: any) =>
 		album.title.toLowerCase().includes(searchQuery.toLowerCase());
 
-	const filteredAlbums = MOCK_ALBUMS.filter(filterAlbum);
-	const filteredSingles = MOCK_SINGLES.filter(filterAlbum);
-	const filteredCompilations = MOCK_COMPILATIONS.filter(filterAlbum);
-	const filteredFeatures = MOCK_FEATURES.filter(filterAlbum);
+	const filteredAlbums = mappedAlbums.filter(filterAlbum);
+	const filteredSingles: any[] = [];
+	const filteredCompilations: any[] = [];
+	const filteredFeatures: any[] = [];
 
 	const handlePlayArtist = () => {
 		if (artistSongs.length > 0) {
@@ -153,6 +92,7 @@ export default function ArtistPage({
 				listenerCount="20,795,080"
 				onPlay={handlePlayArtist}
 				artistSongs={artistSongs}
+				artistPicture={artistData?.artist?.picture}
 			/>
 
 			<ArtistTabs
@@ -204,7 +144,11 @@ export default function ArtistPage({
 					"Compilations",
 					"Features & More",
 				].includes(activeTab) && (
-					<ArtistSidebar biography={BIOGRAPHY} tags={TAGS} />
+					<ArtistSidebar
+						biography={""}
+						tags={artistData?.artist?.artistTypes || []}
+						artistPicture={artistData?.artist?.picture}
+					/>
 				)}
 			</div>
 		</div>
