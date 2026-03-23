@@ -12,9 +12,9 @@ import Image from "next/image";
 import { SearchInput } from "./SearchInput";
 
 export interface ActionMenuItem {
-	label: string;
+	label?: string;
 	icon?: string;
-	onClick: () => void;
+	onClick?: () => void;
 	variant?: "default" | "danger";
 	checked?: boolean;
 }
@@ -27,6 +27,8 @@ interface ActionMenuProps {
 	placement?: "top" | "bottom" | "left" | "right";
 	showSearch?: boolean;
 	showCheckmarks?: boolean;
+	onTrigger?: () => void;
+	openOnClick?: boolean;
 }
 
 export function ActionMenu({
@@ -37,18 +39,26 @@ export function ActionMenu({
 	placement = "bottom",
 	showSearch = false,
 	showCheckmarks = false,
+	onTrigger,
+	openOnClick = true,
 }: ActionMenuProps) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
+
+	useEffect(() => {
+		if (isOpen && onTrigger) {
+			onTrigger();
+		}
+	}, [isOpen, onTrigger]);
 	const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
-	const [minWidth, setMinWidth] = useState(0);
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 
-	const filteredItems = items.filter((item) =>
-		item.label.toLowerCase().includes(searchQuery.toLowerCase()),
-	);
+	const filteredItems = items.filter((item) => {
+		if (!item.label) return false;
+		return item.label.toLowerCase().includes(searchQuery.toLowerCase());
+	});
 
 	const updatePosition = useCallback(() => {
 		if (triggerRef.current && contentRef.current) {
@@ -59,8 +69,8 @@ export function ActionMenu({
 			const gap = 4;
 			const padding = 12;
 
-			setMinWidth(triggerRect.width);
-
+			// Width logic: Browser handles it with fixed positioning and whitespace-nowrap
+			// We just need to ensure we don't exceed viewport width
 			const spaces = {
 				top: triggerRect.top - gap,
 				bottom: vh - triggerRect.bottom - gap,
@@ -145,11 +155,27 @@ export function ActionMenu({
 		};
 	}, [isOpen]);
 
+	const handleContextMenu = (e: React.MouseEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		if (!isOpen) {
+			setSearchQuery("");
+			if (onTrigger) onTrigger();
+		}
+		setCoords({ x: e.clientX, y: e.clientY });
+		setIsOpen(true);
+	};
+
 	return (
-		<div ref={wrapperRef} className={`relative inline-block ${className}`}>
+		<div
+			ref={wrapperRef}
+			className={`relative inline-block ${className}`}
+			onContextMenu={handleContextMenu}
+		>
 			<div
 				ref={triggerRef}
 				onClick={(e) => {
+					if (!openOnClick) return;
 					e.stopPropagation();
 					if (!isOpen) {
 						setCoords(null);
@@ -157,7 +183,7 @@ export function ActionMenu({
 					}
 					setIsOpen(!isOpen);
 				}}
-				className="cursor-pointer"
+				className={openOnClick ? "cursor-pointer" : ""}
 			>
 				{trigger}
 			</div>
@@ -169,14 +195,13 @@ export function ActionMenu({
 						position: "fixed",
 						top: coords?.y ?? 0,
 						left: coords?.x ?? 0,
-						minWidth: minWidth,
 						opacity: coords ? 1 : 0,
 						visibility: coords ? "visible" : "hidden",
 						pointerEvents: coords ? "auto" : "none",
 						zIndex: 50,
-						transition: "none", // Prevent smooth sliding/dragging during scroll or opening
+						transition: "none",
 					}}
-					className="animate-in fade-in zoom-in-95 flex min-w-full flex-col rounded-lg border border-neutral-800 bg-neutral-900 p-1 whitespace-nowrap shadow-lg duration-100"
+					className="animate-in fade-in zoom-in-95 flex flex-col rounded-lg border border-neutral-800 bg-neutral-900 p-1 whitespace-nowrap shadow-lg duration-100"
 				>
 					{showSearch && (
 						<div className="mb-1" onClick={(e) => e.stopPropagation()}>
@@ -189,53 +214,61 @@ export function ActionMenu({
 							/>
 						</div>
 					)}
-					{filteredItems.map((item, index) => (
-						<button
-							key={`${item.label}-${index}`}
-							onClick={(e) => {
-								e.stopPropagation();
-								item.onClick();
-								if (!showCheckmarks || item.checked === undefined) {
-									setIsOpen(false);
-								}
-							}}
-							className={`flex w-full items-center gap-2 ${
-								showCheckmarks && item.checked !== undefined ? "" : "pr-3"
-							} group cursor-pointer rounded-md text-left text-sm whitespace-nowrap transition-colors hover:bg-neutral-800`}
-						>
-							{item.icon && (
-								<Image
-									src={`/icons/Name=${item.icon}, Filled=No.svg`}
-									alt=""
-									width={40}
-									height={40}
-									className="shrink-0"
-								/>
-							)}
-							<span
-								className={`flex-1 font-medium ${
-									item.variant === "danger"
-										? "text-red-500"
-										: "text-neutral-300 group-hover:text-white"
-								}`}
-							>
-								{item.label}
-							</span>
-							{showCheckmarks && item.checked !== undefined && (
-								<Image
-									src={
-										item.checked
-											? "/icons/Name=Check, Filled=Yes.svg"
-											: "/icons/Name=Check, Filled=No.svg"
+					{filteredItems.map((item, index) => {
+						return (
+							<button
+								key={`${item.label}-${index}`}
+								onClick={(e) => {
+									e.stopPropagation();
+									item.onClick?.();
+									if (!showCheckmarks || item.checked === undefined) {
+										setIsOpen(false);
 									}
-									alt={item.checked ? "Checked" : "Unchecked"}
-									width={40}
-									height={40}
-									className="shrink-0 opacity-100 transition-opacity"
-								/>
-							)}
-						</button>
-					))}
+								}}
+								className={`flex w-full items-center gap-2 ${
+									showCheckmarks && item.checked !== undefined ? "" : "pr-3"
+								} group cursor-pointer rounded-md text-left text-sm whitespace-nowrap transition-colors hover:bg-neutral-800`}
+							>
+								{item.icon && (
+									<Image
+										src={`/icons/Name=${item.icon}, Filled=${
+											item.checked ? "Yes" : "No"
+										}.svg`}
+										alt=""
+										width={40}
+										height={40}
+										className={`shrink-0 ${
+											item.checked && item.variant !== "danger"
+												? "brightness-0 invert"
+												: ""
+										}`}
+									/>
+								)}
+								<span
+									className={`flex-1 font-medium ${
+										item.variant === "danger"
+											? "text-red-500"
+											: "text-neutral-300 group-hover:text-white"
+									}`}
+								>
+									{item.label}
+								</span>
+								{showCheckmarks && item.checked !== undefined && (
+									<Image
+										src={
+											item.checked
+												? "/icons/Name=Check, Filled=Yes.svg"
+												: "/icons/Name=Check, Filled=No.svg"
+										}
+										alt={item.checked ? "Checked" : "Unchecked"}
+										width={40}
+										height={40}
+										className="shrink-0 opacity-100 transition-opacity"
+									/>
+								)}
+							</button>
+						);
+					})}
 				</div>
 			)}
 		</div>

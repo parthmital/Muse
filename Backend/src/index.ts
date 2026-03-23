@@ -10,6 +10,8 @@ import { userRoutes } from "./api/users.js";
 import { tidalRoutes } from "./api/tidal.js";
 import { libraryRoutes } from "./api/library.js";
 import { browseRoutes } from "./api/browse.js";
+import { contextMenuRoutes } from "./api/contextMenu.js";
+import { actionRoutes } from "./api/actions.js";
 import { runMigrations } from "./db/client.js";
 import { embeddingClient } from "./services/embeddingClient.js";
 
@@ -47,6 +49,8 @@ await app.register(userRoutes);
 await app.register(tidalRoutes);
 await app.register(libraryRoutes);
 await app.register(browseRoutes);
+await app.register(contextMenuRoutes);
+await app.register(actionRoutes);
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get("/health", async () => {

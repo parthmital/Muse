@@ -65,6 +65,7 @@ export default function ArtistPage({
 
 	const albumsRaw = artistData?.albums || [];
 	const mappedAlbums = albumsRaw.map((a: any) => ({
+		id: String(a.id || a.tidalId || ""),
 		title: a.title,
 		year: a.releaseDate?.substring(0, 4) || "",
 		img: a.cover,
@@ -88,6 +89,7 @@ export default function ArtistPage({
 	return (
 		<div className="flex flex-col">
 			<ArtistBanner
+				id={id}
 				title={title}
 				listenerCount="20,795,080"
 				onPlay={handlePlayArtist}

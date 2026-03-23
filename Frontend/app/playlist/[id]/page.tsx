@@ -12,6 +12,7 @@ import { useSongActions } from "@/hooks/useSongActions";
 import { useSorting } from "@/hooks/useSorting";
 import { usePlayer } from "@/context/PlayerContext";
 import { formatTotalDuration } from "@/utils/duration";
+import { DynamicActionMenu } from "@/components/DynamicActionMenu";
 
 import { getPlaylist } from "@/lib/api";
 import { tidalTrackToSong } from "@/lib/tidalAdapter";
@@ -108,20 +109,6 @@ export default function PlaylistPage({
 		console.log(`Toggled library: ${title}`);
 	};
 
-	const playlistActions: ActionMenuItem[] = [
-		{
-			label: "Edit Playlist",
-			icon: "Edit",
-			onClick: () => console.log("Edit Playlist"),
-		},
-		{
-			label: "Delete Playlist",
-			icon: "Delete",
-			onClick: () => console.log("Delete Playlist"),
-			variant: "danger",
-		},
-	];
-
 	const playIcon = isThisPlaylistPlaying ? "Pause" : "Play";
 
 	return (
@@ -161,9 +148,10 @@ export default function PlaylistPage({
 						onClick={toggleLibrary}
 					/>
 					<IconButton icon="Add to Queue" alt="Add to Queue" />
-					<ActionMenu
+					<DynamicActionMenu
+						type="playlist"
+						id={id}
 						trigger={<IconButton icon="More" alt="More" />}
-						items={playlistActions}
 					/>
 
 					<div className={isSearchActive ? "grow" : ""}>

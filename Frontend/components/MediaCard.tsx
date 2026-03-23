@@ -4,6 +4,7 @@ import Link from "next/link";
 import { IconButton } from "./ui/IconButton";
 import { FallbackImage } from "./ui/FallbackImage";
 import { useColorExtraction } from "@/hooks/useColorExtraction";
+import { DynamicActionMenu } from "./DynamicActionMenu";
 
 export type MediaType = "mix" | "artist" | "album" | "playlist";
 
@@ -52,62 +53,64 @@ export function MediaCard({ item }: MediaCardProps) {
 	const isArtist = inferredType === "artist";
 
 	return (
-		<Link href={href} className="contents">
-			<div className="group relative">
-				<div
-					className={`flex w-44 shrink-0 flex-col gap-2 ${isArtist ? "items-center" : ""}`}
-				>
-					<div className="relative mb-1 aspect-square w-full">
-						<FallbackImage
-							className={
-								isArtist
-									? "rounded-full object-cover"
-									: "rounded-lg object-cover"
-							}
-							src={src}
-							alt={item.title}
-							fill
-							fallbackType={fallbackMap[inferredType]}
-						/>
-					</div>
-					{isArtist ? (
-						<p className="line-clamp-1 font-medium text-white">{item.title}</p>
-					) : (
-						<>
-							<div className="flex items-center justify-between">
+		<DynamicActionMenu
+			type={inferredType}
+			id={routeId}
+			openOnClick={false}
+			trigger={
+				<Link href={href} className="contents">
+					<div className="group relative">
+						<div
+							className={`flex w-44 shrink-0 flex-col gap-2 ${isArtist ? "items-center" : ""}`}
+						>
+							<div className="relative mb-1 aspect-square w-full">
+								<FallbackImage
+									className={
+										isArtist
+											? "rounded-full object-cover"
+											: "rounded-lg object-cover"
+									}
+									src={src}
+									alt={item.title}
+									fill
+									fallbackType={fallbackMap[inferredType]}
+								/>
+							</div>
+							{isArtist ? (
 								<p className="line-clamp-1 font-medium text-white">
 									{item.title}
 								</p>
-								{(item.songs !== undefined || inferredType !== "album") && (
-									<p
-										className={
-											!extractedColor ? "text-white" : "text-(--text-color)"
-										}
-										style={
-											{ "--text-color": extractedColor } as React.CSSProperties
-										}
-									>
-										{item.songs || 0}
-									</p>
-								)}
-							</div>
-							{(item.artist || item.desc) && (
-								<p className="line-clamp-2 text-xs">
-									{item.artist || item.desc}
-								</p>
+							) : (
+								<>
+									<div className="flex items-center justify-between">
+										<p className="line-clamp-1 font-medium text-white">
+											{item.title}
+										</p>
+										{(item.songs !== undefined || inferredType !== "album") && (
+											<p style={{ color: extractedColor || "white" }}>
+												{item.songs || 0}
+											</p>
+										)}
+									</div>
+									{(item.artist || item.desc) && (
+										<p className="line-clamp-2 text-xs">
+											{item.artist || item.desc}
+										</p>
+									)}
+								</>
 							)}
-						</>
-					)}
-				</div>
-				{item.pinned && (
-					<IconButton
-						icon="Pin"
-						alt="Pinned"
-						filled
-						className="absolute top-1 right-1 z-10 rounded-full bg-black"
-					/>
-				)}
-			</div>
-		</Link>
+						</div>
+						{item.pinned && (
+							<IconButton
+								icon="Pin"
+								alt="Pinned"
+								filled
+								className="absolute top-1 right-1 z-10 rounded-full bg-black"
+							/>
+						)}
+					</div>
+				</Link>
+			}
+		/>
 	);
 }

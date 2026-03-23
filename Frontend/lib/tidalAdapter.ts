@@ -29,13 +29,15 @@ export function tidalTrackToSong(track: TidalTrack): Song {
 		artist: track.artist?.name ?? track.artists?.[0]?.name ?? "Unknown Artist",
 		album: track.album?.title ?? "",
 		duration: formatDuration(track.duration),
-		img: track.album?.cover ?? "",
+		img: track.videoCover ?? track.album?.cover ?? "",
 		liked: false,
 		// Extended fields for Tidal integration
 		tidalId: track.id,
 		tidalArtistId: track.artist?.id ?? track.artists?.[0]?.id,
 		tidalAlbumId: track.album?.id,
 		streamUrl: undefined,
+		imageId: track.imageId,
+		videoCover: track.videoCover || undefined,
 	};
 }
 

@@ -5,10 +5,12 @@ import { IconButton } from "@/components/ui/IconButton";
 import { ActionMenu } from "@/components/ui/ActionMenu";
 import { useLibraryManager } from "@/hooks/useLibraryManager";
 import { usePlayer } from "@/context/PlayerContext";
+import { DynamicActionMenu } from "@/components/DynamicActionMenu";
 import { useMemo } from "react";
 import { Song } from "@/components/SongRow";
 
 interface ArtistBannerProps {
+	id: string; // TIDAL ID
 	title: string;
 	listenerCount: string;
 	onPlay?: () => void;
@@ -17,6 +19,7 @@ interface ArtistBannerProps {
 }
 
 export function ArtistBanner({
+	id,
 	title,
 	listenerCount,
 	onPlay,
@@ -79,20 +82,10 @@ export function ArtistBanner({
 						filled={isFollowing}
 						onClick={toggleFollow}
 					/>
-					<ActionMenu
+					<DynamicActionMenu
+						type="artist"
+						id={id}
 						trigger={<IconButton icon="More" alt="More" />}
-						items={[
-							{
-								label: "Share",
-								icon: "Share",
-								onClick: () => console.log("Share"),
-							},
-							{
-								label: "Radio",
-								icon: "Radio",
-								onClick: () => console.log("Start Radio"),
-							},
-						]}
 					/>
 				</div>
 			</div>

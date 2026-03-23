@@ -12,6 +12,7 @@ import { useSongActions } from "@/hooks/useSongActions";
 import { useSorting } from "@/hooks/useSorting";
 import { usePlayer } from "@/context/PlayerContext";
 import { formatTotalDuration } from "@/utils/duration";
+import { DynamicActionMenu } from "@/components/DynamicActionMenu";
 
 import { getAlbum } from "@/lib/api";
 import { tidalTrackToSong } from "@/lib/tidalAdapter";
@@ -109,19 +110,6 @@ export default function AlbumPage({
 		console.log(`${title} album library toggled.`);
 	};
 
-	const albumActions: ActionMenuItem[] = [
-		{
-			label: "Go to Artist",
-			icon: "User",
-			onClick: () => console.log("Go to Artist"),
-		},
-		{
-			label: "Edit Album",
-			icon: "Edit",
-			onClick: () => console.log("Edit Album"),
-		},
-	];
-
 	const playIcon = isThisAlbumPlaying ? "Pause" : "Play";
 
 	return (
@@ -164,9 +152,11 @@ export default function AlbumPage({
 					<IconButton icon="Add to Queue" alt="Add to Queue" />
 					<IconButton icon="Download" alt="Download" />
 					<IconButton icon="Share" alt="Share" />
-					<ActionMenu
+					<DynamicActionMenu
+						type="album"
+						id={id}
 						trigger={<IconButton icon="More" alt="More" />}
-						items={albumActions}
+						song={{ artistId: albumData?.album?.artist?.id }}
 					/>
 
 					<div className={isSearchActive ? "grow" : ""}>

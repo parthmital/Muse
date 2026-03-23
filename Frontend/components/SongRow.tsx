@@ -7,6 +7,7 @@ import { ActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 import { useSongActions } from "@/hooks/useSongActions";
 import { usePlaylistManager } from "@/hooks/usePlaylistManager";
 import { usePlayer } from "@/context/PlayerContext";
+import { DynamicActionMenu } from "@/components/DynamicActionMenu";
 
 export interface Song {
 	title: string;
@@ -20,6 +21,8 @@ export interface Song {
 	tidalArtistId?: number;
 	tidalAlbumId?: number;
 	streamUrl?: string;
+	imageId?: string;
+	videoCover?: string;
 }
 
 export const GRID_COLUMNS_WITH_ALBUM = "grid-cols-song-list-6";
@@ -105,144 +108,106 @@ export function SongRow({
 		);
 	};
 
-	const songActions: ActionMenuItem[] = [
-		{
-			label: "Add to Queue",
-			icon: "Add to Queue",
-			onClick: () => console.log("Add to Queue"),
-		},
-		{
-			label: "Go to Artist",
-			icon: "User",
-			onClick: () => console.log("Go to Artist"),
-		},
-		{
-			label: "Go to Album",
-			icon: "Album",
-			onClick: () => console.log("Go to Album"),
-		},
-		{ label: "Share", icon: "Share", onClick: () => console.log("Share") },
-		{
-			label: "Download",
-			icon: "Download",
-			onClick: () => console.log("Download"),
-		},
-	];
-
-	const playlistOptions: ActionMenuItem[] = [
-		{
-			label: "Create New Playlist",
-			icon: "Add",
-			onClick: () => console.log("Create New Playlist"),
-		},
-		{
-			label: "Summer Hits",
-			icon: "Playlist",
-			checked: isSongInPlaylist("Summer Hits", songKey),
-			onClick: () => togglePlaylist("Summer Hits"),
-		},
-		{
-			label: "Workout Mix",
-			icon: "Playlist",
-			checked: isSongInPlaylist("Workout Mix", songKey),
-			onClick: () => togglePlaylist("Workout Mix"),
-		},
-		{
-			label: "Chill Vibes",
-			icon: "Playlist",
-			checked: isSongInPlaylist("Chill Vibes", songKey),
-			onClick: () => togglePlaylist("Chill Vibes"),
-		},
-	];
-
 	return (
-		<div
-			className={`group/row grid cursor-pointer items-center gap-6 rounded-lg px-4 py-2 transition-colors ${
-				isCurrentTrack && isPlaying ? "bg-neutral-900" : "hover:bg-neutral-900"
-			} ${gridClass}`}
-			onClick={() => playTrack(song)}
-		>
-			<div className="relative flex h-10 w-10 items-center justify-center">
+		<DynamicActionMenu
+			type="track"
+			id={String(song.tidalId)}
+			song={song}
+			openOnClick={false}
+			trigger={
 				<div
-					className={`absolute inset-0 flex items-center justify-center transition-opacity ${
+					className={`group/row grid cursor-pointer items-center gap-6 rounded-lg px-4 py-2 transition-colors ${
 						isCurrentTrack && isPlaying
-							? "opacity-100"
-							: "opacity-0 group-hover/row:opacity-100"
-					}`}
+							? "bg-neutral-900"
+							: "hover:bg-neutral-900"
+					} ${gridClass}`}
+					onClick={() => playTrack(song)}
 				>
-					<IconButton
-						icon={isCurrentTrack && isPlaying ? "Pause" : "Play Simple"}
-						alt="Play"
-						noHover
-						onClick={(e) => {
-							e.stopPropagation();
-							playTrack(song);
-						}}
-					/>
+					<div className="relative flex h-10 w-10 items-center justify-center">
+						<div
+							className={`absolute inset-0 flex items-center justify-center transition-opacity ${
+								isCurrentTrack && isPlaying
+									? "opacity-100"
+									: "opacity-0 group-hover/row:opacity-100"
+							}`}
+						>
+							<IconButton
+								icon={isCurrentTrack && isPlaying ? "Pause" : "Play Simple"}
+								alt="Play"
+								noHover
+								onClick={(e) => {
+									e.stopPropagation();
+									playTrack(song);
+								}}
+							/>
+						</div>
+						<span
+							className={`transition-opacity ${
+								isCurrentTrack && isPlaying
+									? "opacity-0"
+									: "opacity-100 group-hover/row:opacity-0"
+							} ${
+								isCurrentTrack && isPlaying
+									? "font-bold text-white"
+									: "text-neutral-400"
+							}`}
+						>
+							{index + 1}
+						</span>
+					</div>
+
+					<div className="min-w-0">
+						<TrackInfo
+							image={song.img}
+							title={song.title}
+							artist={song.artist}
+						/>
+					</div>
+
+					{!hideAlbum && (
+						<div className="line-clamp-1 min-w-0">{song.album}</div>
+					)}
+
+					<div>{song.duration}</div>
+
+					<div className="flex justify-center">
+						<IconButton
+							icon="Like"
+							alt="Like"
+							filled={isLiked}
+							onClick={handleToggleLike}
+						/>
+					</div>
+
+					<div className="flex items-center gap-6">
+						<div
+							className={`flex items-center gap-6 transition-opacity ${
+								isCurrentTrack && isPlaying
+									? "pointer-events-auto opacity-100"
+									: "pointer-events-none opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100"
+							}`}
+						>
+							<DynamicActionMenu
+								type="track"
+								id={String(song.tidalId)}
+								trigger={<IconButton icon="More" alt="More" />}
+								song={song}
+							/>
+						</div>
+						<IconButton
+							icon="Check"
+							alt="Check"
+							filled={inLibrary}
+							onClick={handleToggleLibrary}
+							className={
+								inLibrary || (isCurrentTrack && isPlaying)
+									? "opacity-100"
+									: "opacity-0 group-hover/row:opacity-100"
+							}
+						/>
+					</div>
 				</div>
-				<span
-					className={`transition-opacity ${
-						isCurrentTrack && isPlaying
-							? "opacity-0"
-							: "opacity-100 group-hover/row:opacity-0"
-					} ${
-						isCurrentTrack && isPlaying
-							? "font-bold text-white"
-							: "text-neutral-400"
-					}`}
-				>
-					{index + 1}
-				</span>
-			</div>
-
-			<div className="min-w-0">
-				<TrackInfo image={song.img} title={song.title} artist={song.artist} />
-			</div>
-
-			{!hideAlbum && <div className="line-clamp-1 min-w-0">{song.album}</div>}
-
-			<div>{song.duration}</div>
-
-			<div className="flex justify-center">
-				<IconButton
-					icon="Like"
-					alt="Like"
-					filled={isLiked}
-					onClick={handleToggleLike}
-				/>
-			</div>
-
-			<div className="flex items-center gap-6">
-				<div
-					className={`flex items-center gap-6 transition-opacity ${
-						isCurrentTrack && isPlaying
-							? "pointer-events-auto opacity-100"
-							: "pointer-events-none opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100"
-					}`}
-				>
-					<ActionMenu
-						showSearch={true}
-						showCheckmarks={true}
-						trigger={<IconButton icon="Add to Playlist" alt="Add" />}
-						items={playlistOptions}
-					/>
-					<ActionMenu
-						trigger={<IconButton icon="More" alt="More" />}
-						items={songActions}
-					/>
-				</div>
-				<IconButton
-					icon="Check"
-					alt="Check"
-					filled={inLibrary}
-					onClick={handleToggleLibrary}
-					className={
-						inLibrary || (isCurrentTrack && isPlaying)
-							? "opacity-100"
-							: "opacity-0 group-hover/row:opacity-100"
-					}
-				/>
-			</div>
-		</div>
+			}
+		/>
 	);
 }

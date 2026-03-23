@@ -2,10 +2,11 @@
 
 import { FallbackImage } from "@/components/ui/FallbackImage";
 import { IconButton } from "@/components/ui/IconButton";
-import { ActionMenu } from "@/components/ui/ActionMenu";
+import { DynamicActionMenu } from "@/components/DynamicActionMenu";
 import { useLibraryManager } from "@/hooks/useLibraryManager";
 
 interface AlbumListItemProps {
+	id: string; // TIDAL ID
 	title: string;
 	year: string;
 	img: string;
@@ -13,6 +14,7 @@ interface AlbumListItemProps {
 }
 
 export function AlbumListItem({
+	id,
 	title,
 	year,
 	img,
@@ -57,15 +59,10 @@ export function AlbumListItem({
 					<IconButton icon="Add to Queue" alt="Add to Queue" />
 					<IconButton icon="Download" alt="Download" />
 					<IconButton icon="Share" alt="Share" />
-					<ActionMenu
+					<DynamicActionMenu
+						type="album"
+						id={id}
 						trigger={<IconButton icon="More" alt="More" />}
-						items={[
-							{
-								label: "Go to Artist",
-								icon: "User",
-								onClick: () => console.log("Go to Artist"),
-							},
-						]}
 					/>
 				</div>
 			</div>

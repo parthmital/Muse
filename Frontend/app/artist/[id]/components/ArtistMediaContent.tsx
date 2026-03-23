@@ -4,6 +4,7 @@ import { MediaCard } from "@/components/MediaCard";
 import { AlbumListItem } from "./AlbumListItem";
 
 export interface Album {
+	id: string; // TIDAL ID
 	title: string;
 	year: string;
 	img: string;
@@ -32,6 +33,7 @@ export function ArtistMediaContent({
 								artist: item.year,
 								songs: item.songsCount,
 								imageUrl: item.img,
+								tidalId: Number(item.id),
 							}}
 						/>
 					))}

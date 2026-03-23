@@ -39,7 +39,6 @@ export interface HifiTrack {
 	audioQuality?: string;
 	isrc?: string;
 	mixes?: Record<string, string>;
-	replayGain?: number;
 	artist?: HifiArtist;
 	artists?: HifiArtist[];
 	album?: HifiAlbum;
@@ -49,6 +48,7 @@ export interface HifiTrack {
 	volumeNumber?: number;
 	version?: string | null;
 	copyright?: string;
+	imageId?: string;
 }
 
 export interface HifiArtist {
@@ -121,8 +121,42 @@ export interface TidalArtistSearchResult {
 
 // ── Client ──────────────────────────────────────────────────────────────────────
 
+const DEFAULT_INSTANCES = {
+	api: [
+		{ url: "https://eu-central.monochrome.tf", version: "2.4" },
+		{ url: "https://us-west.monochrome.tf", version: "2.4" },
+		{ url: "https://arran.monochrome.tf", version: "2.4" },
+		{ url: "https://triton.squid.wtf", version: "2.4" },
+		{ url: "https://api.monochrome.tf", version: "2.3" },
+		{ url: "https://monochrome-api.samidy.com", version: "2.3" },
+		{ url: "https://maus.qqdl.site", version: "2.2" },
+		{ url: "https://vogel.qqdl.site", version: "2.2" },
+		{ url: "https://katze.qqdl.site", version: "2.2" },
+		{ url: "https://hund.qqdl.site", version: "2.2" },
+		{ url: "https://tidal.kinoplus.online", version: "2.2" },
+		{ url: "https://wolf.qqdl.site", version: "2.2" },
+	],
+	streaming: [
+		{ url: "https://arran.monochrome.tf", version: "2.4" },
+		{ url: "https://triton.squid.wtf", version: "2.4" },
+		{ url: "https://maus.qqdl.site", version: "2.2" },
+		{ url: "https://vogel.qqdl.site", version: "2.2" },
+		{ url: "https://katze.qqdl.site", version: "2.2" },
+		{ url: "https://hund.qqdl.site", version: "2.2" },
+		{ url: "https://wolf.qqdl.site", version: "2.2" },
+		{ url: "https://hifi.p1nkhamster.xyz/", version: "2.6" },
+	],
+};
+
+const DISCOVERY_URLS = [
+	"https://tidal-uptime.jiffy-puffs-1j.workers.dev/",
+	"https://tidal-uptime.props-76styles.workers.dev/",
+];
+
 class HifiClient {
 	private http: AxiosInstance;
+	private instances: any = DEFAULT_INSTANCES;
+	private lastDiscovery = 0;
 
 	constructor() {
 		const baseURL = config.tidalApiBaseUrl || "http://localhost:9000";
@@ -131,20 +165,92 @@ class HifiClient {
 			timeout: 30_000,
 		});
 
-		// Retry interceptor: retry up to 3 times on 5xx with exponential backoff
+		// Retry interceptor: handles failover to community instances
 		this.http.interceptors.response.use(undefined, async (err: AxiosError) => {
 			const cfg = err.config as any;
 			cfg._retries = (cfg._retries ?? 0) + 1;
-			if (
-				cfg._retries <= 3 &&
-				err.response?.status &&
-				err.response.status >= 500
-			) {
-				await delay(cfg._retries * 1000);
-				return this.http.request(cfg);
+
+			if (cfg._retries > 5) throw err;
+
+			// Proactively refresh instances if old
+			if (Date.now() - this.lastDiscovery > 15 * 60 * 1000) {
+				await this.discoverInstances().catch(() => {});
 			}
+
+			// Pick a new instance for retry if the current one failed (5xx or timeout)
+			if (!err.response || err.response.status >= 500) {
+				const type = cfg.url?.includes("/track") ? "streaming" : "api";
+				const pool = this.instances[type] || this.instances.api;
+				const nextInstance = pool[Math.floor(Math.random() * pool.length)];
+
+				if (nextInstance) {
+					cfg.baseURL = nextInstance.url;
+					return this.http.request(cfg);
+				}
+			}
+
 			throw err;
 		});
+	}
+
+	private async discoverInstances() {
+		for (const url of DISCOVERY_URLS.sort(() => Math.random() - 0.5)) {
+			try {
+				const { data } = await axios.get(url, { timeout: 5000 });
+				if (data && (data.api || data.streaming)) {
+					this.instances = data;
+					this.lastDiscovery = Date.now();
+					return;
+				}
+			} catch {}
+		}
+	}
+
+	/**
+	 * Extract direct stream URL from DASH manifest
+	 */
+	public extractStreamUrlFromManifest(manifest: string | any): string | null {
+		try {
+			// If it's a base64 string, decode it
+			let decoded = manifest;
+			if (typeof manifest === "string" && !manifest.includes("<MPD")) {
+				decoded = Buffer.from(manifest, "base64").toString("utf-8");
+			}
+
+			// Simple regex based search for priority formats in URLs
+			// (Since we can't easily parse XML MPD here without heavy deps)
+			const urls: string[] = [];
+			const urlMatches = decoded.matchAll(/<BaseURL[^>]*>(.*?)<\/BaseURL>/g);
+			for (const match of urlMatches) {
+				if (match[1]) urls.push(match[1]);
+			}
+
+			// If no BaseURL, look for any https? URLs (Tidal dash manifests often use these)
+			if (urls.length === 0) {
+				const httpsMatches = decoded.matchAll(
+					/https?:\/\/[^\s"<>]+?\.mp4\?[^\s"<>]+/g,
+				);
+				for (const match of httpsMatches) {
+					urls.push(match[0]);
+				}
+			}
+
+			if (urls.length === 0) return null;
+
+			const priority = ["flac", "lossless", "hi-res", "high"];
+			const sorted = urls.sort((a, b) => {
+				const idxA = priority.findIndex((k) => a.toLowerCase().includes(k));
+				const idxB = priority.findIndex((k) => b.toLowerCase().includes(k));
+				return (
+					(idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB) ||
+					b.length - a.length
+				);
+			});
+
+			return sorted[0] || null;
+		} catch {
+			return null;
+		}
 	}
 
 	// ── Track Info ────────────────────────────────────────────────────────────
@@ -279,7 +385,8 @@ class HifiClient {
 		cover: { "750"?: string } | null;
 	}> {
 		const { data } = await this.http.get(`/artist/`, { params: { id } });
-		return { artist: data.artist ?? data.data, cover: data.cover ?? null };
+		const payload = data.data ?? data;
+		return { artist: payload.artist ?? payload, cover: payload.cover ?? null };
 	}
 
 	async getArtistAlbums(
@@ -292,9 +399,10 @@ class HifiClient {
 		const { data } = await this.http.get(`/artist/`, {
 			params: { f: artistId, skip_tracks: skipTracks },
 		});
+		const payload = data.data ?? data;
 		return {
-			albums: data.albums ?? { items: [] },
-			tracks: data.tracks ?? [],
+			albums: payload.albums ?? { items: [] },
+			tracks: payload.tracks ?? [],
 		};
 	}
 
@@ -302,14 +410,16 @@ class HifiClient {
 		const { data } = await this.http.get(`/artist/similar/`, {
 			params: { id },
 		});
-		return data.artists ?? [];
+		const payload = data.data ?? data;
+		return payload.artists ?? payload;
 	}
 
 	async getSimilarAlbums(id: number | string): Promise<HifiAlbum[]> {
 		const { data } = await this.http.get(`/album/similar/`, {
 			params: { id },
 		});
-		return data.albums ?? [];
+		const payload = data.data ?? data;
+		return payload.albums ?? payload;
 	}
 
 	// ── Playlist ─────────────────────────────────────────────────────────────
@@ -319,23 +429,117 @@ class HifiClient {
 		limit = 100,
 		offset = 0,
 	): Promise<{ playlist: HifiPlaylist; tracks: HifiTrack[] }> {
-		const { data } = await this.http.get(`/playlist/`, {
+		const response = await this.http.get(`/playlist/`, {
 			params: { id, limit, offset },
 		});
-		return {
-			playlist: data.playlist ?? {},
-			tracks: (data.items ?? []).map((item: any) => item.item ?? item),
-		};
+		const data = response.data.data ?? response.data;
+
+		let playlist: any = null;
+		let tracksSection: any = null;
+
+		// Check for direct property
+		if (data.playlist) playlist = data.playlist;
+		if (data.items) tracksSection = { items: data.items };
+
+		// Fallback: iterate
+		if (!playlist || !tracksSection) {
+			const entries = Array.isArray(data) ? data : [data];
+			for (const entry of entries) {
+				if (!entry || typeof entry !== "object") continue;
+				if (
+					!playlist &&
+					(entry.uuid || entry.numberOfTracks || (entry.title && entry.id))
+				) {
+					playlist = entry;
+				}
+				if (!tracksSection && entry.items) {
+					tracksSection = entry;
+				}
+			}
+		}
+
+		if (!playlist) throw new Error("Playlist not found");
+
+		let tracks = (tracksSection?.items || []).map((i: any) => i.item || i);
+
+		// Pagination
+		if (playlist.numberOfTracks > tracks.length) {
+			let currentOffset = tracks.length;
+			const SAFE_MAX = 5000;
+
+			while (
+				tracks.length < playlist.numberOfTracks &&
+				tracks.length < SAFE_MAX
+			) {
+				try {
+					const nextRes = await this.http.get(`/playlist/`, {
+						params: { id, offset: currentOffset, limit: 100 },
+					});
+					const nextData = nextRes.data.data ?? nextRes.data;
+					let nextItems: any[] = [];
+
+					if (nextData.items) {
+						nextItems = nextData.items;
+					} else if (Array.isArray(nextData)) {
+						for (const entry of nextData) {
+							if (entry?.items) {
+								nextItems = entry.items;
+								break;
+							}
+						}
+					}
+
+					if (!nextItems || nextItems.length === 0) break;
+
+					const prepared = nextItems.map((i) => i.item || i);
+					// Loop safety
+					if (tracks.length > 0 && prepared[0].id === tracks[0].id) break;
+
+					tracks = tracks.concat(prepared);
+					currentOffset += prepared.length;
+				} catch {
+					break;
+				}
+			}
+		}
+
+		return { playlist, tracks };
 	}
 
 	// ── Mix ──────────────────────────────────────────────────────────────────
 
 	async getMix(id: string): Promise<{ mix: HifiMix; tracks: HifiTrack[] }> {
-		const { data } = await this.http.get(`/mix/`, { params: { id } });
-		return {
-			mix: data.mix ?? {},
-			tracks: data.items ?? [],
-		};
+		const response = await this.http.get(`/mix/`, { params: { id } });
+		const data = response.data.data ?? response.data;
+
+		let mix: any = null;
+		let tracks: any[] = [];
+
+		if (data.mix) {
+			mix = data.mix;
+			tracks = data.items || [];
+		} else {
+			// Fallback: search for mix-like object and items
+			const entries = Array.isArray(data) ? data : [data];
+			for (const entry of entries) {
+				if (entry.id && (entry.title || entry.subTitle)) {
+					mix = entry;
+				}
+				if (entry.items) {
+					tracks = entry.items;
+				}
+			}
+			// If still no tracks but it's an array, it might be the tracks themselves
+			if (tracks.length === 0 && Array.isArray(data)) {
+				tracks = data;
+			}
+		}
+
+		if (!mix) throw new Error("Mix not found");
+
+		const preparedTracks = tracks.map((i: any) => i.item || i);
+
+		return { mix, tracks: preparedTracks };
 	}
 
 	// ── Stream / Playback Info ───────────────────────────────────────────────

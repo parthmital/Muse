@@ -57,7 +57,7 @@ export function ArtistTabs({
 								setIsSearchActive(false);
 								onSearchChange?.("");
 							}}
-							onChange={onSearchChange}
+							onSearch={onSearchChange}
 							preventNavigation={true}
 						/>
 					) : (

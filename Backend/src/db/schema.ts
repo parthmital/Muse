@@ -279,3 +279,25 @@ export const searchHistory = sqliteTable(
 		userTimeIdx: index("sh_user_time_idx").on(t.userId, t.searchedAt),
 	}),
 );
+
+// ── Blocked Items ─────────────────────────────────────────────────────────────
+export const blockedItems = sqliteTable(
+	"blocked_items",
+	{
+		id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id),
+		itemType: text("item_type").notNull(), // 'track', 'album', 'artist'
+		itemId: text("item_id").notNull(),
+		blockedAt: integer("blocked_at").default(now() as any),
+	},
+	(t) => ({
+		userBlockIdx: index("user_block_idx").on(t.userId, t.itemType, t.itemId),
+		userBlockUnique: uniqueIndex("user_block_unique").on(
+			t.userId,
+			t.itemType,
+			t.itemId,
+		),
+	}),
+);

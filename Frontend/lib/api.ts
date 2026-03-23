@@ -43,6 +43,8 @@ export interface TidalTrack {
 		releaseDate?: string | null;
 	} | null;
 	mixes?: Record<string, string>;
+	imageId?: string;
+	videoCover?: string | null;
 }
 
 export interface TidalArtist {

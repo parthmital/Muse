@@ -1,6 +1,11 @@
 import { eq, inArray, desc, and, notInArray, gte } from "drizzle-orm";
 import { db, fromJson, toJson } from "../db/client.js";
-import { tracks, trackFeatures, userInteractions } from "../db/schema.js";
+import {
+	tracks,
+	trackFeatures,
+	userInteractions,
+	userLibrary,
+} from "../db/schema.js";
 import {
 	featureCache,
 	recCache,
@@ -21,6 +26,7 @@ function surfaceLimit(surface: string, override?: number): number {
 			home: config.homeRecCount,
 			discover: config.mixTrackCount,
 			daily_mix: config.mixTrackCount,
+			radio: config.queueSize,
 		}[surface] ?? 20
 	);
 }
@@ -349,4 +355,47 @@ function cosineSim(a: number[], b: number[]): number {
 function l2norm(v: number[]): number[] {
 	const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
 	return norm > 0 ? v.map((x) => x / norm) : v;
+}
+
+// ── Radio Seeds ───────────────────────────────────────────────────────────────
+
+/**
+ * Backend implementation of pickRadioSeeds from Music Playback.txt
+ * Collects tracks from user history, favorites, and playlists to seed a radio session.
+ */
+export async function pickRadioSeeds(userId: string): Promise<string[]> {
+	const [historyRows, libraryRows] = await Promise.all([
+		// 1. History (most played / recent)
+		db
+			.select({ id: userInteractions.trackId })
+			.from(userInteractions)
+			.where(
+				and(
+					eq(userInteractions.userId, userId),
+					eq(userInteractions.eventType, "play"),
+				),
+			)
+			.orderBy(desc(userInteractions.occurredAt))
+			.limit(100),
+		// 2. Favorites (user library tracks)
+		db
+			.select({ id: userLibrary.itemId })
+			.from(userLibrary)
+			.where(
+				and(eq(userLibrary.userId, userId), eq(userLibrary.itemType, "track")),
+			)
+			.limit(100),
+	]);
+
+	const history = historyRows.map((r) => r.id).filter(Boolean) as string[];
+	const library = libraryRows.map((r) => r.id).filter(Boolean) as string[];
+
+	// Combine, shuffle, and take top 50
+	const combined = [...new Set([...history, ...library])];
+	for (let i = combined.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[combined[i], combined[j]] = [combined[j], combined[i]];
+	}
+
+	return combined.slice(0, 50);
 }

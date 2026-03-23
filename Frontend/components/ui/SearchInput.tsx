@@ -12,6 +12,7 @@ interface SearchInputProps {
 	onClose?: () => void;
 	preventNavigation?: boolean;
 	onChange?: (value: string) => void;
+	onSearch?: (value: string) => void;
 }
 
 function SearchInputContent({
@@ -21,12 +22,12 @@ function SearchInputContent({
 	onClose,
 	preventNavigation = false,
 	onChange,
+	onSearch,
 }: SearchInputProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const pathname = usePathname();
 	const [query, setQuery] = useState(searchParams.get("q") || "");
-	const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
 	useEffect(() => {
 		const q = searchParams.get("q") || "";
@@ -35,14 +36,12 @@ function SearchInputContent({
 		}
 	}, [searchParams]);
 
-	const handleSearch = (e: ChangeEvent<HTMLInputElement>) => {
-		const val = e.target.value;
-		setQuery(val);
-		if (onChange) onChange(val);
+	const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+		if (e.key === "Enter") {
+			const val = query;
+			if (onSearch) onSearch(val);
 
-		if (!preventNavigation) {
-			if (timeoutRef.current) clearTimeout(timeoutRef.current);
-			timeoutRef.current = setTimeout(() => {
+			if (!preventNavigation) {
 				if (val.trim()) {
 					const params = new URLSearchParams(searchParams.toString());
 					params.set("q", val);
@@ -54,7 +53,7 @@ function SearchInputContent({
 				} else if (pathname === "/search") {
 					router.replace("/search");
 				}
-			}, 300);
+			}
 		}
 	};
 
@@ -71,7 +70,11 @@ function SearchInputContent({
 				className="grow bg-transparent outline-none placeholder:text-neutral-500"
 				autoFocus={autoFocus}
 				value={query}
-				onChange={handleSearch}
+				onChange={(e) => {
+					setQuery(e.target.value);
+					if (onChange) onChange(e.target.value);
+				}}
+				onKeyDown={handleKeyDown}
 			/>
 			{onClose && <IconButton icon="Close" alt="Close" onClick={onClose} />}
 		</div>
@@ -85,6 +88,7 @@ export function SearchInput({
 	onClose,
 	preventNavigation = false,
 	onChange,
+	onSearch,
 }: SearchInputProps) {
 	return (
 		<Suspense fallback={<SearchInputSkeleton />}>
@@ -95,6 +99,7 @@ export function SearchInput({
 				onClose={onClose}
 				preventNavigation={preventNavigation}
 				onChange={onChange}
+				onSearch={onSearch}
 			/>
 		</Suspense>
 	);

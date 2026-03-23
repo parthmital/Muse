@@ -109,7 +109,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 				let manifest = "";
 
 				if (!streamUrl && track.tidalId) {
-					const info = await getStreamInfo(track.tidalId, "HI_RES_LOSSLESS");
+					const info = await getStreamInfo(track.tidalId, "LOSSLESS");
+					console.log(`[Player] Stream Info:`, info);
 					streamUrl = info.streamUrl ?? "";
 					manifestMimeType = info.manifestMimeType;
 					manifest = info.manifest;

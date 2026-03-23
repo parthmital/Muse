@@ -5,6 +5,7 @@ import { IconButton } from "./ui/IconButton";
 import { TrackInfo } from "./TrackInfo";
 import { ActionMenu, ActionMenuItem } from "./ui/ActionMenu";
 import { usePlayer } from "@/context/PlayerContext";
+import { DynamicActionMenu } from "./DynamicActionMenu";
 import { usePlaylistManager } from "@/hooks/usePlaylistManager";
 import { formatPlaybackTime } from "@/utils/duration";
 
@@ -24,43 +25,6 @@ export function Player() {
 	const songKey = currentTrack
 		? `${currentTrack.title}-${currentTrack.artist}`
 		: "";
-
-	const togglePlaylist = (playlistName: string) => {
-		if (!songKey) return;
-		toggleSongInPlaylist(playlistName, songKey);
-		const isPresent = isSongInPlaylist(playlistName, songKey);
-		console.log(
-			`${!isPresent ? "Added" : "Removed"} ${currentTrack?.title} ${
-				!isPresent ? "to" : "from"
-			} ${playlistName}`,
-		);
-	};
-
-	const playlistOptions: ActionMenuItem[] = [
-		{
-			label: "Create New Playlist",
-			icon: "Add",
-			onClick: () => console.log("Create New Playlist"),
-		},
-		{
-			label: "Summer Hits",
-			icon: "Playlist",
-			checked: songKey ? isSongInPlaylist("Summer Hits", songKey) : false,
-			onClick: () => togglePlaylist("Summer Hits"),
-		},
-		{
-			label: "Workout Mix",
-			icon: "Playlist",
-			checked: songKey ? isSongInPlaylist("Workout Mix", songKey) : false,
-			onClick: () => togglePlaylist("Workout Mix"),
-		},
-		{
-			label: "Chill Vibes",
-			icon: "Playlist",
-			checked: songKey ? isSongInPlaylist("Chill Vibes", songKey) : false,
-			onClick: () => togglePlaylist("Chill Vibes"),
-		},
-	];
 
 	const [isDragging, setIsDragging] = useState(false);
 	const [dragProgress, setDragProgress] = useState(0);
@@ -162,46 +126,19 @@ export function Player() {
 						title={currentTrack?.title || "No track selected"}
 						artist={currentTrack?.artist || "Select a song to play"}
 					/>
-					{audioQuality && (
-						<div className="flex shrink-0 items-center rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-bold text-neutral-400 tracking-wider">
-							{audioQuality.replace(/_/g, " ")}
-						</div>
-					)}
 				</div>
 			</div>
 
 			<div className="flex items-center gap-2">
 				<IconButton icon="Like" alt="Like" />
-				<ActionMenu
-					showSearch={true}
-					showCheckmarks={true}
-					align="right"
-					placement="top"
-					trigger={<IconButton icon="Add to Playlist" alt="Add to Playlist" />}
-					items={playlistOptions}
-				/>
 				<IconButton icon="Queue" alt="Queue" />
-				<ActionMenu
+				<DynamicActionMenu
+					type="track"
+					id={String(currentTrack?.tidalId || "")}
 					align="right"
 					placement="top"
 					trigger={<IconButton icon="More" alt="More" />}
-					items={[
-						{
-							label: "Go to Artist",
-							icon: "User",
-							onClick: () => console.log("Go to Artist"),
-						},
-						{
-							label: "Go to Album",
-							icon: "Album",
-							onClick: () => console.log("Go to Album"),
-						},
-						{
-							label: "Share",
-							icon: "Share",
-							onClick: () => console.log("Share"),
-						},
-					]}
+					song={currentTrack}
 				/>
 			</div>
 		</div>

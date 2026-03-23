@@ -3,10 +3,10 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { users } from "../db/schema.js";
-import { recommend } from "../services/recommender.js";
+import { recommend, pickRadioSeeds } from "../services/recommender.js";
 import { initQueue, updateQueue, getQueue } from "../services/queueManager.js";
 
-const SURFACES = ["queue", "home", "discover", "daily_mix"] as const;
+const SURFACES = ["queue", "home", "discover", "daily_mix", "radio"] as const;
 
 async function resolveUser(externalId: string) {
 	const [user] = await db
@@ -45,6 +45,17 @@ export async function recommendationRoutes(app: FastifyInstance) {
 			generatedAt: Date.now(),
 		};
 	});
+
+	// GET /users/:userId/radio/seeds
+	app.get<{ Params: { userId: string } }>(
+		"/users/:userId/radio/seeds",
+		async (req, reply) => {
+			const user = await resolveUser(req.params.userId);
+			if (!user) return reply.status(404).send({ error: "User not found" });
+			const seeds = await pickRadioSeeds(user.id);
+			return { userId: req.params.userId, seeds };
+		},
+	);
 
 	// POST /users/:userId/queue/init
 	app.post<{

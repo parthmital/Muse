@@ -21,7 +21,6 @@ import {
 } from "../cache/tidalCache.js";
 import axios from "axios";
 import { Jimp } from "jimp";
-import { FastAverageColor } from "fast-average-color";
 
 // ── Color Cache ──────────────────────────────────────────────────────────────
 // This stays in memory to avoid repeated heavy extraction
@@ -29,19 +28,25 @@ const colorCache = new (await import("lru-cache")).LRUCache<string, string>({
 	max: 1000,
 });
 
-// Initialize FastAverageColor for the backend
-const fac = new FastAverageColor();
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function tidalImageUrl(
 	pictureId: string | undefined | null,
-	size = "640x640",
+	size: string | number = 640,
+	type: "square" | "video" = "square",
 ): string | null {
 	if (!pictureId) return null;
+	if (
+		typeof pictureId === "string" &&
+		(pictureId.startsWith("http") ||
+			pictureId.startsWith("blob:") ||
+			pictureId.startsWith("assets/"))
+	) {
+		return pictureId;
+	}
 	// Normalize ID (replace slashes with dashes for URL safety in proxy route)
 	const id = pictureId.replace(/\//g, "-");
-	return `${config.apiBaseUrl}/tidal/images/${id}?size=${size}`;
+	return `${config.apiBaseUrl}/tidal/images/${id}?size=${size}&type=${type}`;
 }
 
 function normalizeTrack(raw: any) {
@@ -54,10 +59,6 @@ function normalizeTrack(raw: any) {
 		volumeNumber: raw.volumeNumber,
 		popularity: raw.popularity,
 		explicit: raw.explicit ?? false,
-		audioQuality: raw.audioQuality,
-		isrc: raw.isrc,
-		bpm: raw.bpm,
-		key: raw.key,
 		version: raw.version,
 		url: raw.url,
 		artist: raw.artist
@@ -86,9 +87,17 @@ function normalizeTrack(raw: any) {
 					cover: tidalImageUrl(raw.album.cover),
 					vibrantColor: raw.album.vibrantColor,
 					releaseDate: raw.album.releaseDate,
+					type: raw.album.type,
 				}
 			: null,
 		mixes: raw.mixes ?? {},
+		audioQuality: raw.audioQuality,
+		isrc: raw.isrc,
+		bpm: raw.bpm,
+		key: raw.key,
+		keyScale: raw.keyScale,
+		imageId: raw.imageId,
+		videoCover: raw.imageId ? tidalImageUrl(raw.imageId, 1280, "video") : null,
 	};
 }
 
@@ -141,21 +150,172 @@ function normalizeAlbum(raw: any) {
 	};
 }
 
-// ── Color Extraction ─────────────────────────────────────────────────────────
+function normalizePlaylist(raw: any) {
+	if (!raw) return null;
+	return {
+		id: raw.uuid || raw.id,
+		title: raw.title,
+		description: raw.description,
+		numberOfTracks: raw.numberOfTracks,
+		duration: raw.duration,
+		image: tidalImageUrl(raw.image || raw.squareImage),
+		url: raw.url,
+	};
+}
 
-async function getAverageColorManual(buffer: Buffer): Promise<string | null> {
+function normalizeMix(raw: any) {
+	if (!raw) return null;
+	const cover =
+		raw.images?.LARGE?.url ||
+		raw.images?.MEDIUM?.url ||
+		raw.images?.SMALL?.url ||
+		null;
+	return {
+		id: raw.id,
+		title: raw.title,
+		subTitle: raw.subTitle,
+		description: raw.description,
+		cover: tidalImageUrl(cover),
+	};
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+	r /= 255;
+	g /= 255;
+	b /= 255;
+	const max = Math.max(r, g, b),
+		min = Math.min(r, g, b);
+	let h = 0,
+		s = 0,
+		l = (max + min) / 2;
+	if (max !== min) {
+		const d = max - min;
+		s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+		switch (max) {
+			case r:
+				h = (g - b) / d + (g < b ? 6 : 0);
+				break;
+			case g:
+				h = (b - r) / d + 2;
+				break;
+			case b:
+				h = (r - g) / d + 4;
+				break;
+		}
+		h /= 6;
+	}
+	return [h, s, l];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+	let r: number, g: number, b: number;
+	if (s === 0) {
+		r = g = b = l;
+	} else {
+		const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+		const p = 2 * l - q;
+		const hue2rgb = (t: number) => {
+			if (t < 0) t += 1;
+			if (t > 1) t -= 1;
+			if (t < 1 / 6) return p + (q - p) * 6 * t;
+			if (t < 1 / 2) return q;
+			if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+			return p;
+		};
+		r = hue2rgb(h + 1 / 3);
+		g = hue2rgb(h);
+		b = hue2rgb(h - 1 / 3);
+	}
+	const toHex = (x: number) =>
+		Math.round(x * 255)
+			.toString(16)
+			.padStart(2, "0");
+	return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/**
+ * Port of frontend's color adjustment logic to the backend.
+ * Ensures the color is suitable for specific UI uses (fonts, backgrounds).
+ */
+function adjustColor(hex: string, mode: "brighten" | "darken"): string {
+	let r = parseInt(hex.slice(1, 3), 16);
+	let g = parseInt(hex.slice(3, 5), 16);
+	let b = parseInt(hex.slice(5, 7), 16);
+
+	if (mode === "brighten") {
+		if ((r + g + b) / 3 < 128) {
+			r = Math.min(255, r + 80);
+			g = Math.min(255, g + 80);
+			b = Math.min(255, b + 80);
+			return `rgb(${r}, ${g}, ${b})`;
+		}
+	} else if (mode === "darken") {
+		if ((r + g + b) / 3 > 128) {
+			r = Math.floor(r * 0.5);
+			g = Math.floor(g * 0.5);
+			b = Math.floor(b * 0.5);
+			return `rgb(${r}, ${g}, ${b})`;
+		}
+	}
+	return hex;
+}
+
+// ── Image Proxy & Color Extraction ───────────────────────────────────────────
+
+async function getVibrantColorManual(buffer: Buffer): Promise<string | null> {
 	try {
 		const image = await Jimp.read(buffer);
-		// @ts-ignore - modern jimp resize signature
-		image.resize({ width: 64 });
+		const maxDim = 64;
+		let w = image.bitmap.width;
+		let h = image.bitmap.height;
+		if (w > maxDim || h > maxDim) {
+			const scale = Math.min(maxDim / w, maxDim / h);
+			w = Math.floor(w * scale);
+			h = Math.floor(h * scale);
+			// @ts-ignore - modern jimp resize signature
+			image.resize({ width: w, height: h });
+		}
 
-		const color = fac.getColor(image.bitmap.data as any, {
-			algorithm: "dominant",
-			width: image.bitmap.width,
-			height: image.bitmap.height,
-		});
+		const pixels = image.bitmap.data;
+		const candidates = [];
+		for (let i = 0; i < pixels.length; i += 4) {
+			const r = pixels[i];
+			const g = pixels[i + 1];
+			const b = pixels[i + 2];
+			const a = pixels[i + 3];
 
-		return color.hex;
+			if (a < 125) continue;
+
+			const [hVal, sVal, lVal] = rgbToHsl(r, g, b);
+			if (sVal >= 0.3 && lVal >= 0.3 && lVal <= 0.8) {
+				candidates.push({ h: hVal, s: sVal, l: lVal });
+			}
+		}
+
+		if (!candidates.length) {
+			// Relaxed criteria
+			for (let i = 0; i < pixels.length; i += 4) {
+				const r = pixels[i];
+				const g = pixels[i + 1];
+				const b = pixels[i + 2];
+				const a = pixels[i + 3];
+				if (a < 10) continue;
+				const [hVal, sVal, lVal] = rgbToHsl(r, g, b);
+				candidates.push({ h: hVal, s: sVal, l: lVal });
+			}
+		}
+
+		if (!candidates.length) return null;
+
+		candidates.sort(
+			(c1, c2) =>
+				c2.s - c1.s ||
+				0.5 - Math.abs(c1.l - 0.5) - (0.5 - Math.abs(c2.l - 0.5)),
+		);
+
+		return hslToHex(candidates[0].h, candidates[0].s, candidates[0].l);
 	} catch (err) {
 		return null;
 	}
@@ -167,24 +327,84 @@ export async function tidalRoutes(app: FastifyInstance) {
 	// ── Image Proxy & Color Extraction ────────────────────────────────────────
 	app.get<{
 		Params: { pictureId: string };
-		Querystring: { size?: string };
+		Querystring: { size?: string; type?: "square" | "video" };
 	}>("/tidal/images/:pictureId", async (req, reply) => {
 		const { pictureId } = req.params;
-		const size = req.query.size ?? "640x640";
+		const { size = "640", type = "square" } = req.query;
 
 		const slug = pictureId.replace(/-/g, "/");
-		const tidalUrl = `https://resources.tidal.com/images/${slug}/${size}.jpg`;
+		const requestedSize = parseInt(size, 10);
+		const supportedSizes = [1280, 640, 320, 160, 80];
+
+		// Header for Tidal and Proxy requests
+		const headers = {
+			"User-Agent":
+				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		};
+
+		const fetchImage = async (url: string) => {
+			try {
+				const res = await axios.get(url, {
+					responseType: "arraybuffer",
+					headers,
+					timeout: 5000,
+				});
+				return res.data;
+			} catch {
+				return null;
+			}
+		};
+
+		const fetchWithProxy = async (url: string) => {
+			try {
+				const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+				const res = await axios.get(proxyUrl, {
+					responseType: "arraybuffer",
+					headers,
+					timeout: 8000,
+				});
+				return res.data;
+			} catch {
+				return null;
+			}
+		};
+
+		const tryAllSizes = async (startSize: number) => {
+			const sizesToTry =
+				type === "video"
+					? [1280, 640] // Videos usually only have these
+					: supportedSizes.filter((s) => s <= startSize);
+
+			for (const s of sizesToTry) {
+				const url =
+					type === "video"
+						? `https://resources.tidal.com/images/${slug}/${s}x720.jpg`
+						: `https://resources.tidal.com/images/${slug}/${s}x${s}.jpg`;
+
+				let data = await fetchImage(url);
+				if (!data) data = await fetchWithProxy(url);
+
+				if (data) {
+					return { data, actualSize: s };
+				}
+			}
+			return null;
+		};
 
 		try {
-			const response = await axios.get(tidalUrl, {
-				responseType: "arraybuffer",
-			});
+			const result = await tryAllSizes(requestedSize);
 
-			const cacheKey = `${pictureId}:${size}`;
+			if (!result) {
+				app.log.warn(`Image not found even with fallbacks: ${pictureId}`);
+				return reply.status(404).send({ error: "Image not found" });
+			}
+
+			const { data: responseData, actualSize } = result;
+			const buffer = Buffer.from(responseData);
+			const cacheKey = `${pictureId}:${actualSize}:${type}`;
+
 			if (!colorCache.has(cacheKey)) {
-				const avgColor = await getAverageColorManual(
-					Buffer.from(response.data),
-				);
+				const avgColor = await getVibrantColorManual(buffer);
 				if (avgColor) {
 					colorCache.set(cacheKey, avgColor);
 				}
@@ -196,21 +416,91 @@ export async function tidalRoutes(app: FastifyInstance) {
 				reply.header("X-Extracted-Color", colorCache.get(cacheKey)!);
 			}
 
-			return Buffer.from(response.data);
+			return buffer;
 		} catch (err: any) {
-			app.log.error(`Proxy failed for ${tidalUrl}: ${err.message}`);
+			app.log.error(`Proxy failed for ${pictureId}: ${err.message}`);
 			return reply.status(404).send({ error: "Image not found" });
 		}
 	});
 
-	app.get<{ Params: { pictureId: string } }>(
-		"/tidal/images/:pictureId/color",
-		async (req, reply) => {
-			const { pictureId } = req.params;
-			const cacheKey = `${pictureId}:640x640`;
-			return { color: colorCache.get(cacheKey) || null };
-		},
-	);
+	app.get<{
+		Params: { pictureId: string };
+		Querystring: { mode?: "brighten" | "darken"; size?: string; type?: string };
+	}>("/tidal/images/:pictureId/color", async (req, reply) => {
+		const { pictureId } = req.params;
+		const { mode, size = "640", type = "square" } = req.query;
+		const cacheKey = `${pictureId}:${size}:${type}`;
+
+		let color: string | null | undefined = colorCache.get(cacheKey);
+
+		if (!color) {
+			const slug = pictureId.replace(/-/g, "/");
+			const requestedSize = parseInt(size, 10);
+			const supportedSizes = [1280, 640, 320, 160, 80];
+			const headers = {
+				"User-Agent":
+					"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			};
+
+			const fetchBuffer = async (url: string) => {
+				try {
+					const res = await axios.get(url, {
+						responseType: "arraybuffer",
+						headers,
+						timeout: 5000,
+					});
+					return Buffer.from(res.data);
+				} catch {
+					try {
+						const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+						const res = await axios.get(proxyUrl, {
+							responseType: "arraybuffer",
+							headers,
+							timeout: 8000,
+						});
+						return Buffer.from(res.data);
+					} catch {
+						return null;
+					}
+				}
+			};
+
+			const tryAllSizes = async (startSize: number) => {
+				const sizesToTry =
+					type === "video"
+						? [1280, 640]
+						: supportedSizes.filter((s) => s <= startSize);
+
+				for (const s of sizesToTry) {
+					const url =
+						type === "video"
+							? `https://resources.tidal.com/images/${slug}/${s}x720.jpg`
+							: `https://resources.tidal.com/images/${slug}/${s}x${s}.jpg`;
+
+					const buffer = await fetchBuffer(url);
+					if (buffer) return buffer;
+				}
+				return null;
+			};
+
+			try {
+				const buffer = await tryAllSizes(requestedSize);
+				if (buffer) {
+					color = (await getVibrantColorManual(buffer)) || null;
+					if (color) {
+						colorCache.set(cacheKey, color);
+					}
+				}
+			} catch (err) {
+				return { color: null };
+			}
+		}
+
+		if (color && mode) {
+			return { color: adjustColor(color, mode) };
+		}
+		return { color: color || null };
+	});
 
 	// ── Search ────────────────────────────────────────────────────────────────
 
@@ -267,7 +557,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 					const raw = await hifiClient.searchPlaylists(q, limit, offset);
 					result = {
 						type: "playlists",
-						items: raw.items,
+						items: raw.items.map(normalizePlaylist),
 						limit: raw.limit,
 						offset: raw.offset,
 						totalNumberOfItems: raw.totalNumberOfItems,
@@ -318,7 +608,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 				tracks: (tracks?.items ?? []).map(normalizeTrack),
 				artists: (artists?.artists?.items ?? []).map(normalizeArtist),
 				albums: (albums?.items ?? []).map(normalizeAlbum),
-				playlists: playlists?.items ?? [],
+				playlists: (playlists?.items ?? []).map(normalizePlaylist),
 				query: q,
 			};
 
@@ -377,6 +667,14 @@ export async function tidalRoutes(app: FastifyInstance) {
 					streamUrl = null;
 				}
 			}
+
+			// Fallback to DASH or other manifest formats if BTS fails
+			if (!streamUrl && raw.manifest) {
+				streamUrl = hifiClient.extractStreamUrlFromManifest(raw.manifest);
+			}
+			console.log(
+				`[Stream] trackId: ${trackId}, quality: ${raw.audioQuality}, hasStreamUrl: ${!!streamUrl}`,
+			);
 			const result = {
 				trackId: raw.trackId,
 				audioQuality: raw.audioQuality,
@@ -510,13 +808,28 @@ export async function tidalRoutes(app: FastifyInstance) {
 		try {
 			const raw = await hifiClient.getPlaylist(playlistId, limit, offset);
 			const result = {
-				playlist: raw.playlist,
+				playlist: normalizePlaylist(raw.playlist),
 				tracks: raw.tracks.map(normalizeTrack).filter(Boolean),
 			};
 			playlistCache.set(cacheK, result);
 			return result;
 		} catch (err: any) {
-			return reply.status(502).send({ error: "Failed to fetch playlist" });
+			// Fallback: Try fetching as a Mix if Playlist fails
+			try {
+				const rawMix = await hifiClient.getMix(playlistId);
+				const result = {
+					playlist: normalizeMix(rawMix.mix),
+					tracks: rawMix.tracks.map(normalizeTrack).filter(Boolean),
+				};
+				// Store in playlist cache so subsequent hits don't need hit mix endpoint either
+				playlistCache.set(cacheK, result);
+				return result;
+			} catch (err2: any) {
+				app.log.error(
+					`Failed to fetch playlist or mix for ${playlistId}: ${err.message}`,
+				);
+				return reply.status(502).send({ error: "Failed to fetch playlist" });
+			}
 		}
 	});
 
@@ -529,7 +842,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 			try {
 				const raw = await hifiClient.getMix(mixId);
 				const result = {
-					mix: raw.mix,
+					mix: normalizeMix(raw.mix),
 					tracks: raw.tracks.map(normalizeTrack).filter(Boolean),
 				};
 				mixCache.set(mixId, result);
