@@ -12,7 +12,9 @@ import { libraryRoutes } from "./api/library.js";
 import { browseRoutes } from "./api/browse.js";
 import { contextMenuRoutes } from "./api/contextMenu.js";
 import { actionRoutes } from "./api/actions.js";
-import { runMigrations } from "./db/client.js";
+import { runMigrations, db } from "./db/client.js";
+import { eq } from "drizzle-orm";
+import { users, userProfiles } from "./db/schema.js";
 import { embeddingClient } from "./services/embeddingClient.js";
 
 const app = Fastify({
@@ -25,11 +27,33 @@ const app = Fastify({
 	},
 });
 
-// Run DB migrations
+// Run DB migrations and ensure dev user
 try {
 	runMigrations();
+
+	const DEV_USER_ID = "dev-user-001";
+	const [existing] = await db
+		.select()
+		.from(users)
+		.where(eq(users.externalId, DEV_USER_ID))
+		.limit(1);
+
+	if (!existing) {
+		console.log("Initializing dev user...");
+		await db.insert(users).values({
+			id: DEV_USER_ID,
+			externalId: DEV_USER_ID,
+			isNew: false,
+		});
+		// Also create a profile
+		await db.insert(userProfiles).values({
+			userId: DEV_USER_ID,
+			profileVector: "[]",
+			totalPlayCount: 0,
+		});
+	}
 } catch (e) {
-	console.error("Migration error:", e);
+	console.error("Initialization error:", e);
 }
 
 await app.register(cors, { origin: true });

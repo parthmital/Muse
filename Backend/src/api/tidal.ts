@@ -332,14 +332,16 @@ export async function tidalRoutes(app: FastifyInstance) {
 		const { pictureId } = req.params;
 		const { size = "640", type = "square" } = req.query;
 
-		const slug = pictureId.replace(/-/g, "/");
 		const requestedSize = parseInt(size, 10);
-		const supportedSizes = [1280, 640, 320, 160, 80];
+		const supportedSizes = [1280, 1080, 750, 640, 480, 320, 160, 80];
 
 		// Header for Tidal and Proxy requests
 		const headers = {
 			"User-Agent":
 				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			Accept:
+				"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+			Referer: "https://listen.tidal.com/",
 		};
 
 		const fetchImage = async (url: string) => {
@@ -347,7 +349,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 				const res = await axios.get(url, {
 					responseType: "arraybuffer",
 					headers,
-					timeout: 5000,
+					timeout: 10000,
 				});
 				return res.data;
 			} catch {
@@ -361,7 +363,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 				const res = await axios.get(proxyUrl, {
 					responseType: "arraybuffer",
 					headers,
-					timeout: 8000,
+					timeout: 12000,
 				});
 				return res.data;
 			} catch {
@@ -370,22 +372,64 @@ export async function tidalRoutes(app: FastifyInstance) {
 		};
 
 		const tryAllSizes = async (startSize: number) => {
-			const sizesToTry =
-				type === "video"
-					? [1280, 640] // Videos usually only have these
-					: supportedSizes.filter((s) => s <= startSize);
+			const sizesToTry = type === "video" ? [1280, 640] : supportedSizes; // Try all if target size fails
 
-			for (const s of sizesToTry) {
-				const url =
-					type === "video"
-						? `https://resources.tidal.com/images/${slug}/${s}x720.jpg`
-						: `https://resources.tidal.com/images/${slug}/${s}x${s}.jpg`;
+			// Try slashed first (standard UUID partitioning)
+			const slugSlashed = pictureId.replace(/-/g, "/");
+			// Try hyphenated/raw as fallback
+			const slugRaw = pictureId;
+			// Try dashless (often used for editorial/curated assets)
+			const slugDashless = pictureId.replace(/-/g, "");
 
-				let data = await fetchImage(url);
-				if (!data) data = await fetchWithProxy(url);
+			const slugs = [slugSlashed];
+			if (slugRaw !== slugSlashed) slugs.push(slugRaw);
+			if (slugDashless !== slugRaw && slugDashless !== slugSlashed)
+				slugs.push(slugDashless);
 
-				if (data) {
-					return { data, actualSize: s };
+			const domains = ["resources.tidal.com", "images.tidal.com"];
+			const exts = [".jpg", ".webp", ".png"];
+			// Prioritize the requested size, but try others if it fails
+			const sizes = [
+				requestedSize,
+				...supportedSizes.filter((s) => s !== requestedSize),
+			];
+
+			// We use a bread-first-like search to find any working version quickly
+			// Priority: Standard JPG on primary domain
+			for (const currentSlug of slugs) {
+				for (const s of sizes) {
+					const url =
+						type === "video"
+							? `https://${domains[0]}/images/${currentSlug}/${s}x720${exts[0]}`
+							: `https://${domains[0]}/images/${currentSlug}/${s}x${s}${exts[0]}`;
+
+					let data = await fetchImage(url);
+					if (!data) data = await fetchWithProxy(url);
+
+					if (data && data.length > 500) {
+						return { data, actualSize: s };
+					}
+				}
+			}
+
+			// Fallback: Try other domains and extensions
+			for (const ext of exts.slice(1)) {
+				for (const domain of domains) {
+					for (const currentSlug of slugs) {
+						for (const s of sizes) {
+							const url =
+								type === "video"
+									? `https://${domain}/images/${currentSlug}/${s}x720${ext}`
+									: `https://${domain}/images/${currentSlug}/${s}x${s}${ext}`;
+
+							let data = await fetchImage(url);
+							if (!data) data = await fetchWithProxy(url);
+
+							if (data && data.length > 500) {
+								return { data, actualSize: s };
+							}
+						}
+					}
 				}
 			}
 			return null;
@@ -434,12 +478,14 @@ export async function tidalRoutes(app: FastifyInstance) {
 		let color: string | null | undefined = colorCache.get(cacheKey);
 
 		if (!color) {
-			const slug = pictureId.replace(/-/g, "/");
 			const requestedSize = parseInt(size, 10);
-			const supportedSizes = [1280, 640, 320, 160, 80];
+			const supportedSizes = [1280, 1080, 750, 640, 480, 320, 160, 80];
 			const headers = {
 				"User-Agent":
 					"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+				Accept:
+					"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+				Referer: "https://listen.tidal.com/",
 			};
 
 			const fetchBuffer = async (url: string) => {
@@ -447,7 +493,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 					const res = await axios.get(url, {
 						responseType: "arraybuffer",
 						headers,
-						timeout: 5000,
+						timeout: 10000,
 					});
 					return Buffer.from(res.data);
 				} catch {
@@ -456,7 +502,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 						const res = await axios.get(proxyUrl, {
 							responseType: "arraybuffer",
 							headers,
-							timeout: 8000,
+							timeout: 12000,
 						});
 						return Buffer.from(res.data);
 					} catch {
@@ -466,19 +512,52 @@ export async function tidalRoutes(app: FastifyInstance) {
 			};
 
 			const tryAllSizes = async (startSize: number) => {
-				const sizesToTry =
-					type === "video"
-						? [1280, 640]
-						: supportedSizes.filter((s) => s <= startSize);
+				const sizesToTry = type === "video" ? [1280, 640] : supportedSizes;
 
-				for (const s of sizesToTry) {
-					const url =
-						type === "video"
-							? `https://resources.tidal.com/images/${slug}/${s}x720.jpg`
-							: `https://resources.tidal.com/images/${slug}/${s}x${s}.jpg`;
+				const slugSlashed = pictureId.replace(/-/g, "/");
+				const slugRaw = pictureId;
+				const slugDashless = pictureId.replace(/-/g, "");
 
-					const buffer = await fetchBuffer(url);
-					if (buffer) return buffer;
+				const slugs = [slugSlashed];
+				if (slugRaw !== slugSlashed) slugs.push(slugRaw);
+				if (slugDashless !== slugRaw && slugDashless !== slugSlashed)
+					slugs.push(slugDashless);
+
+				const domains = ["resources.tidal.com", "images.tidal.com"];
+				const exts = [".jpg", ".webp", ".png"];
+				const sizes = [
+					requestedSize,
+					...supportedSizes.filter((s) => s !== requestedSize),
+				];
+
+				// Priority: Standard JPG on primary domain
+				for (const currentSlug of slugs) {
+					for (const s of sizes) {
+						const url =
+							type === "video"
+								? `https://${domains[0]}/images/${currentSlug}/${s}x720${exts[0]}`
+								: `https://${domains[0]}/images/${currentSlug}/${s}x${s}${exts[0]}`;
+
+						const buffer = await fetchBuffer(url);
+						if (buffer && buffer.length > 500) return buffer;
+					}
+				}
+
+				// Fallback: Other domains and extensions
+				for (const ext of exts.slice(1)) {
+					for (const domain of domains) {
+						for (const currentSlug of slugs) {
+							for (const s of sizes) {
+								const url =
+									type === "video"
+										? `https://${domain}/images/${currentSlug}/${s}x720${ext}`
+										: `https://${domain}/images/${currentSlug}/${s}x${s}${ext}`;
+
+								const buffer = await fetchBuffer(url);
+								if (buffer && buffer.length > 500) return buffer;
+							}
+						}
+					}
 				}
 				return null;
 			};

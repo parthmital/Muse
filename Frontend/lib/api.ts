@@ -81,6 +81,24 @@ export interface TidalAlbum {
 	}>;
 }
 
+export interface TidalPlaylist {
+	id: string; // UUID
+	title: string;
+	description?: string;
+	numberOfTracks?: number;
+	duration?: number;
+	image?: string | null;
+	url?: string;
+}
+
+export interface TidalMix {
+	id: string;
+	title: string;
+	subTitle?: string;
+	description?: string;
+	cover?: string | null;
+}
+
 export interface SearchResult<T> {
 	type: string;
 	items: T[];
@@ -173,7 +191,7 @@ export async function searchPlaylists(
 	limit = 25,
 	offset = 0,
 	signal?: AbortSignal,
-): Promise<SearchResult<any>> {
+): Promise<SearchResult<TidalPlaylist>> {
 	return apiFetch(
 		`/tidal/search?q=${encodeURIComponent(query)}&type=playlists&limit=${limit}&offset=${offset}`,
 		{ signal },
@@ -188,7 +206,8 @@ export async function searchAll(
 	tracks: TidalTrack[];
 	artists: TidalArtist[];
 	albums: TidalAlbum[];
-	playlists: any[];
+	playlists: TidalPlaylist[];
+	mixes?: TidalMix[];
 	query: string;
 }> {
 	return apiFetch(

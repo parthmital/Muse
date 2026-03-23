@@ -8,7 +8,13 @@
 
 import type { Song } from "@/components/SongRow";
 import type { MediaItem, MediaType } from "@/components/MediaCard";
-import type { TidalTrack, TidalAlbum, TidalArtist } from "@/lib/api";
+import type {
+	TidalTrack,
+	TidalAlbum,
+	TidalArtist,
+	TidalPlaylist,
+	TidalMix,
+} from "@/lib/api";
 
 /**
  * Convert seconds to "M:SS" format used by the existing Song interface.
@@ -77,5 +83,32 @@ export function tidalTrackToMediaItem(track: TidalTrack): MediaItem {
 		artist: track.artist?.name ?? track.artists?.[0]?.name,
 		tidalId: track.album?.id ?? track.id,
 		imageUrl: track.album?.cover ?? undefined,
+	};
+}
+
+/**
+ * Convert a Tidal playlist to MediaItem.
+ */
+export function tidalPlaylistToMediaItem(playlist: TidalPlaylist): MediaItem {
+	return {
+		type: "playlist" as MediaType,
+		title: playlist.title,
+		desc: playlist.description,
+		songs: playlist.numberOfTracks,
+		tidalId: playlist.id,
+		imageUrl: playlist.image ?? undefined,
+	};
+}
+
+/**
+ * Convert a Tidal mix to MediaItem.
+ */
+export function tidalMixToMediaItem(mix: TidalMix): MediaItem {
+	return {
+		type: "mix" as MediaType,
+		title: mix.title,
+		desc: mix.subTitle || mix.description,
+		tidalId: mix.id,
+		imageUrl: mix.cover ?? undefined,
 	};
 }

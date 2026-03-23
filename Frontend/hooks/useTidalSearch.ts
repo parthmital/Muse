@@ -17,13 +17,16 @@ import {
 	type TidalTrack,
 	type TidalArtist,
 	type TidalAlbum,
+	type TidalPlaylist,
+	type TidalMix,
 } from "@/lib/api";
 
 export interface TidalSearchResults {
 	tracks: TidalTrack[];
 	artists: TidalArtist[];
 	albums: TidalAlbum[];
-	playlists: any[];
+	playlists: TidalPlaylist[];
+	mixes?: TidalMix[];
 	isLoading: boolean;
 	error: string | null;
 }
@@ -35,7 +38,8 @@ export function useTidalSearch(
 	const [tracks, setTracks] = useState<TidalTrack[]>([]);
 	const [artists, setArtists] = useState<TidalArtist[]>([]);
 	const [albums, setAlbums] = useState<TidalAlbum[]>([]);
-	const [playlists, setPlaylists] = useState<any[]>([]);
+	const [playlists, setPlaylists] = useState<TidalPlaylist[]>([]);
+	const [mixes, setMixes] = useState<TidalMix[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const abortRef = useRef<AbortController | null>(null);
@@ -47,6 +51,7 @@ export function useTidalSearch(
 			setArtists([]);
 			setAlbums([]);
 			setPlaylists([]);
+			setMixes([]);
 			setIsLoading(false);
 			setError(null);
 			return;
@@ -70,6 +75,7 @@ export function useTidalSearch(
 				setArtists(results.artists);
 				setAlbums(results.albums);
 				setPlaylists(results.playlists);
+				setMixes(results.mixes || []);
 				setError(null);
 			} catch (err: any) {
 				if (err.name === "AbortError") return;
@@ -85,5 +91,5 @@ export function useTidalSearch(
 		};
 	}, [query, debounceMs]);
 
-	return { tracks, artists, albums, playlists, isLoading, error };
+	return { tracks, artists, albums, playlists, mixes, isLoading, error };
 }

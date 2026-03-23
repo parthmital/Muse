@@ -16,7 +16,7 @@ export interface MediaItem {
 	artist?: string;
 	pinned?: boolean;
 	// Tidal integration fields (optional, backward-compatible)
-	tidalId?: number;
+	tidalId?: number | string;
 	imageUrl?: string;
 }
 
@@ -26,9 +26,10 @@ interface MediaCardProps {
 
 export function MediaCard({ item }: MediaCardProps) {
 	const inferredType = item.type || "mix";
-	const routeId = item.tidalId
-		? String(item.tidalId)
-		: encodeURIComponent(item.title);
+	const routeId =
+		item.tidalId !== undefined
+			? String(item.tidalId)
+			: encodeURIComponent(item.title);
 	const href =
 		inferredType === "artist"
 			? `/artist/${routeId}`

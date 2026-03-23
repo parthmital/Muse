@@ -16,6 +16,7 @@ import {
 	tidalTrackToSong,
 	tidalAlbumToMediaItem,
 	tidalArtistToMediaItem,
+	tidalPlaylistToMediaItem,
 } from "@/lib/tidalAdapter";
 
 // No fallbacks, exclusively backend.
@@ -74,7 +75,10 @@ function SearchContentInner() {
 	const filteredSongs = tidalSongs;
 	const artists = tidalArtists;
 	const albums = tidalAlbums;
-	const playlists = tidalResults.playlists || [];
+	const tidalPlaylists: MediaItem[] = (tidalResults.playlists || []).map(
+		tidalPlaylistToMediaItem,
+	);
+	const playlists = tidalPlaylists;
 
 	// Build top result for "All" view
 	const topResultItem: MediaItem | null =

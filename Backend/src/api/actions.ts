@@ -32,6 +32,7 @@ export async function actionRoutes(app: FastifyInstance) {
 		Body: z.infer<typeof ActionBody>;
 	}>("/actions/:action", async (req, reply) => {
 		const { action } = req.params;
+		console.log(`[Action] ${action}`, req.body);
 		const { userId: externalId, type, id, target } = ActionBody.parse(req.body);
 
 		const user = await resolveUser(externalId);
