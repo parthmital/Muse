@@ -32,7 +32,7 @@ export default function AlbumPage({
 	const { id } = use(params);
 	const title = decodeURIComponent(id);
 
-	const { playTrack, currentTrack, isPlaying } = usePlayer();
+	const { playTrack, playPlaylist, currentTrack, isPlaying } = usePlayer();
 
 	const [albumData, setAlbumData] = useState<any>(null);
 	const [isLoading, setIsLoading] = useState(true);
@@ -100,7 +100,7 @@ export default function AlbumPage({
 
 	const handlePlayAll = () => {
 		if (sortedSongs.length > 0) {
-			playTrack(sortedSongs[0]);
+			playPlaylist(sortedSongs);
 		}
 	};
 

@@ -2,13 +2,13 @@
 
 import { useState, use, useEffect } from "react";
 
-import { ArtistBanner } from "./components/ArtistBanner";
-import { ArtistTabs } from "./components/ArtistTabs";
+import { ArtistBanner } from "@/components/ArtistBanner";
+import { ArtistTabs } from "@/components/ArtistTabs";
 import { usePlayer } from "@/context/PlayerContext";
 import { Song } from "@/components/SongRow";
-import { ArtistHomeContent } from "./components/ArtistHomeContent";
-import { ArtistMediaContent, Album } from "./components/ArtistMediaContent";
-import { ArtistSidebar } from "./components/ArtistSidebar";
+import { ArtistHomeContent } from "@/components/ArtistHomeContent";
+import { ArtistMediaContent, Album } from "@/components/ArtistMediaContent";
+import { ArtistSidebar } from "@/components/ArtistSidebar";
 
 const TABS = [
 	"Home",

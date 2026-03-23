@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import axios from "axios";
 import cors from "@fastify/cors";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
@@ -51,6 +52,18 @@ try {
 			profileVector: "[]",
 			totalPlayCount: 0,
 		});
+	}
+
+	// Check Tidal-API health
+	try {
+		const res = await axios.get(`${config.tidalApiBaseUrl}/`, {
+			timeout: 2000,
+		});
+		console.log(`[Health] Tidal-API is UP at ${config.tidalApiBaseUrl}`);
+	} catch (e: any) {
+		console.warn(
+			`[Health] Tidal-API is UNREACHABLE at ${config.tidalApiBaseUrl}: ${e.message}`,
+		);
 	}
 } catch (e) {
 	console.error("Initialization error:", e);

@@ -1,63 +1,53 @@
 import { FastifyInstance } from "fastify";
 import { db } from "../db/client.js";
-import { eq, desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { searchHistory, users } from "../db/schema.js";
-import { config } from "../config.js";
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function proxiedImage(pictureId: string | null, size = "640x640") {
-	if (!pictureId) return "";
-	const safeId = pictureId.replace(/\//g, "-");
-	return `${config.apiBaseUrl}/tidal/images/${safeId}?size=${size}`;
-}
-
-// ── Mock Data for fallback/discovery ─────────────────────────────────────────
-
-const DISCOVERY_ITEMS = [
-	{
-		tidalId: 5468,
-		title: "Daft Punk",
-		type: "artist",
-		imageUrl: proxiedImage("84de7982/f38b/47bc/ad69/3f044d014f37"),
-	},
-	{
-		tidalId: 457,
-		title: "David Bowie",
-		type: "artist",
-		imageUrl: proxiedImage("992f77d8/f731/844f/9a7f/3e1284e79907"),
-	},
-	{
-		tidalId: 3418512,
-		title: "Black Holes and Revelations",
-		artist: "Muse",
-		songs: 11,
-		type: "album",
-		imageUrl: proxiedImage("187a71f7/e26b/4e0d/929a/113c36ab3607"),
-	},
-];
-
-const SEARCH_SECTIONS = [
-	{
-		title: "Discover",
-		items: ["Made For You", "New Releases", "Charts", "Trending"],
-	},
-	{
-		title: "Genres",
-		items: ["Pop", "Country", "Hip-Hop", "Rock", "Indie"],
-	},
-];
+import { hifiClient } from "../services/hifiClient.js";
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 export async function browseRoutes(app: FastifyInstance) {
+	/**
+	 * Returns categories for the search/browse page.
+	 * Now derived from a set of canonical genres.
+	 */
 	app.get("/browse/search-sections", async () => {
-		return { categories: SEARCH_SECTIONS };
+		const genres = [
+			"Pop",
+			"Hip-Hop",
+			"Rock",
+			"Electronic",
+			"R&B",
+			"Jazz",
+			"Classical",
+			"Indie",
+			"Metal",
+			"Country",
+			"Lo-Fi",
+			"Study",
+			"workout",
+		];
+
+		const categories = [
+			{
+				title: "For You",
+				items: ["Made For You", "New Releases", "Charts", "Trending"],
+			},
+			{
+				title: "Genres & Moods",
+				items: genres,
+			},
+		];
+
+		return { categories };
 	});
 
+	/**
+	 * Pulls the user's recent search history from the DB.
+	 * If empty, fetches some "trending" items dynamically from Tidal.
+	 */
 	app.get("/browse/recent-searches", async () => {
 		try {
-			// Pull from DB
 			const history = await db
 				.select()
 				.from(searchHistory)
@@ -76,11 +66,36 @@ export async function browseRoutes(app: FastifyInstance) {
 				};
 			}
 		} catch (e) {
-			// Fallback if table doesn't exist yet
+			// Fail through to discovery
 		}
 
-		// Fallback to high-quality featured items (with images)
-		return { items: DISCOVERY_ITEMS };
+		// Discovery fallback: Search for some "seed" popular content
+		try {
+			const [popularTracks, popularArtists] = await Promise.all([
+				hifiClient.searchTracks("Trending", 4),
+				hifiClient.searchArtists("Daft Punk", 2),
+			]);
+
+			const items = [
+				...popularArtists.artists.items.map((a) => ({
+					tidalId: Number(a.id),
+					title: a.name,
+					type: "artist",
+					imageUrl: hifiClient.tidalImageUrl(a.picture),
+				})),
+				...popularTracks.items.map((t) => ({
+					tidalId: Number(t.id),
+					title: t.title,
+					artist: t.artist?.name,
+					type: "track",
+					imageUrl: hifiClient.tidalImageUrl(t.imageId),
+				})),
+			];
+
+			return { items };
+		} catch (err) {
+			return { items: [] };
+		}
 	});
 
 	app.post<{
@@ -94,8 +109,19 @@ export async function browseRoutes(app: FastifyInstance) {
 	}>("/browse/searches", async (req, reply) => {
 		const { query, itemType, itemId, imageUrl, metadata } = req.body;
 
-		// For demo/simple version, we'll just use a default user or try to find one
-		let [user] = await db.select().from(users).limit(1);
+		// Link to the primary development user
+		const DEV_USER_ID = "dev-user-001";
+		let [user] = await db
+			.select()
+			.from(users)
+			.where(eq(users.id, DEV_USER_ID))
+			.limit(1);
+
+		if (!user) {
+			// Fallback to any user if dev user doesn't exist
+			[user] = await db.select().from(users).limit(1);
+		}
+
 		if (!user) {
 			return reply.status(401).send({ error: "No user found to link history" });
 		}

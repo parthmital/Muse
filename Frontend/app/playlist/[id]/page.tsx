@@ -32,7 +32,7 @@ export default function PlaylistPage({
 	const { id } = use(params);
 	const title = decodeURIComponent(id);
 
-	const { playTrack, currentTrack, isPlaying } = usePlayer();
+	const { playTrack, playPlaylist, currentTrack, isPlaying } = usePlayer();
 
 	const [playlistData, setPlaylistData] = useState<any>(null);
 	const [isLoading, setIsLoading] = useState(true);
@@ -101,7 +101,7 @@ export default function PlaylistPage({
 
 	const handlePlayAll = () => {
 		if (sortedSongs.length > 0) {
-			playTrack(sortedSongs[0]);
+			playPlaylist(sortedSongs);
 		}
 	};
 

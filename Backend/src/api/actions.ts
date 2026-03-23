@@ -2,13 +2,7 @@ import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/client.js";
-import {
-	users,
-	userLibrary,
-	blockedItems,
-	playlists,
-	playlistTracks,
-} from "../db/schema.js";
+import { users, userLibrary, playlists, playlistTracks } from "../db/schema.js";
 
 async function resolveUser(externalId: string) {
 	const [user] = await db
@@ -23,7 +17,6 @@ const ActionBody = z.object({
 	userId: z.string(),
 	type: z.string(), // track, album, artist, playlist, etc.
 	id: z.string(),
-	target: z.string().optional(), // for block action (track, album, artist)
 });
 
 export async function actionRoutes(app: FastifyInstance) {
@@ -33,7 +26,7 @@ export async function actionRoutes(app: FastifyInstance) {
 	}>("/actions/:action", async (req, reply) => {
 		const { action } = req.params;
 		console.log(`[Action] ${action}`, req.body);
-		const { userId: externalId, type, id, target } = ActionBody.parse(req.body);
+		const { userId: externalId, type, id } = ActionBody.parse(req.body);
 
 		const user = await resolveUser(externalId);
 		if (!user) return reply.status(404).send({ error: "User not found" });
@@ -92,33 +85,6 @@ export async function actionRoutes(app: FastifyInstance) {
 						itemId: id,
 						itemType: type as any,
 						isPinned: true,
-					});
-					return { success: true, active: true };
-				}
-			}
-
-			case "toggle_block": {
-				const blockType = target || type;
-				const [existing] = await db
-					.select()
-					.from(blockedItems)
-					.where(
-						and(
-							eq(blockedItems.userId, user.id),
-							eq(blockedItems.itemId, id),
-							eq(blockedItems.itemType, blockType as any),
-						),
-					)
-					.limit(1);
-
-				if (existing) {
-					await db.delete(blockedItems).where(eq(blockedItems.id, existing.id));
-					return { success: true, active: false };
-				} else {
-					await db.insert(blockedItems).values({
-						userId: user.id,
-						itemId: id,
-						itemType: blockType as any,
 					});
 					return { success: true, active: true };
 				}

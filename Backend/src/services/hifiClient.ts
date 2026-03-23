@@ -253,6 +253,27 @@ class HifiClient {
 		}
 	}
 
+	/**
+	 * Generate a proxied image URL for a Tidal picture ID.
+	 */
+	public tidalImageUrl(
+		pictureId: string | undefined | null,
+		size: string | number = 640,
+		type: "square" | "video" = "square",
+	): string | null {
+		if (!pictureId) return null;
+		if (
+			typeof pictureId === "string" &&
+			(pictureId.startsWith("http") ||
+				pictureId.startsWith("blob:") ||
+				pictureId.startsWith("assets/"))
+		) {
+			return pictureId;
+		}
+		const id = pictureId.replace(/\//g, "-");
+		return `${config.apiBaseUrl}/tidal/images/${id}?size=${size}&type=${type}`;
+	}
+
 	// ── Track Info ────────────────────────────────────────────────────────────
 
 	/** Fetch track metadata by Tidal track ID */

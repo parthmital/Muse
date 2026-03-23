@@ -23,6 +23,9 @@ interface PlayerContextType {
 	togglePlay: () => void;
 	seek: (time: number) => void;
 	setVolume: (volume: number) => void;
+	addToQueue: (track: Song) => void;
+	playNext: (track: Song) => void;
+	playPlaylist: (tracks: Song[], startIdx?: number) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -34,9 +37,75 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 	const [duration, setDuration] = useState(0);
 	const [volume, setVolume] = useState(0.7);
 	const [audioQuality, setAudioQuality] = useState<string | null>(null);
+	const [queue, setQueue] = useState<Song[]>([]);
+	const [currentIndex, setCurrentIndex] = useState(-1);
+
+	const queueRef = useRef<Song[]>([]);
+	const indexRef = useRef(-1);
 
 	const audioRef = useRef<HTMLAudioElement | null>(null);
 	const dashPlayerRef = useRef<MediaPlayerClass | null>(null);
+
+	const playTrackInternal = useCallback(async (track: Song) => {
+		if (!audioRef.current) return;
+
+		setCurrentTrack(track);
+		setIsPlaying(true);
+		setProgress(0);
+
+		try {
+			let streamUrl = track.streamUrl;
+			let manifestMimeType = "";
+			let manifest = "";
+
+			if (!streamUrl && track.tidalId) {
+				const info = await getStreamInfo(track.tidalId, "LOSSLESS");
+				streamUrl = info.streamUrl ?? "";
+				manifestMimeType = info.manifestMimeType;
+				manifest = info.manifest;
+				setAudioQuality(info.audioQuality);
+			}
+
+			const audio = audioRef.current;
+			const dashPlayer = dashPlayerRef.current;
+
+			if (
+				manifestMimeType === "application/dash+xml" &&
+				manifest &&
+				dashPlayer
+			) {
+				const decoded = atob(manifest);
+				const blob = new Blob([decoded], { type: "application/dash+xml" });
+				const blobUrl = URL.createObjectURL(blob);
+				dashPlayer.initialize(audio, blobUrl, true);
+			} else if (streamUrl) {
+				if (dashPlayer) {
+					try {
+						dashPlayer.reset();
+					} catch (e) {
+						// Ignore if not initialized
+					}
+				}
+				audio.src = streamUrl;
+				audio.play().catch(console.error);
+			} else {
+				// Dummy fallback
+				audio.src = "/music/Damocles.m4a";
+				audio.play().catch(console.error);
+			}
+		} catch (err) {
+			console.error("Failed to load stream:", err);
+		}
+	}, []);
+
+	const skipToNext = useCallback(() => {
+		if (indexRef.current < queueRef.current.length - 1) {
+			const nextIdx = indexRef.current + 1;
+			indexRef.current = nextIdx;
+			setCurrentIndex(nextIdx);
+			playTrackInternal(queueRef.current[nextIdx]);
+		}
+	}, [playTrackInternal]);
 
 	useEffect(() => {
 		audioRef.current = new Audio();
@@ -45,21 +114,22 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		const handleTimeUpdate = () => setProgress(audio.currentTime);
 		const handleLoadedMetadata = () => setDuration(audio.duration);
 		const handleEnded = () => {
-			setIsPlaying(false);
-			setProgress(0);
+			if (indexRef.current < queueRef.current.length - 1) {
+				skipToNext();
+			} else {
+				setIsPlaying(false);
+				setProgress(0);
+			}
 		};
 
 		audio.addEventListener("timeupdate", handleTimeUpdate);
 		audio.addEventListener("loadedmetadata", handleLoadedMetadata);
 		audio.addEventListener("ended", handleEnded);
 
-		// Initialize dash.js
 		import("dashjs").then((dashjs) => {
 			dashPlayerRef.current = dashjs.MediaPlayer().create();
 			dashPlayerRef.current.updateSettings({
-				streaming: {
-					buffer: { fastSwitchEnabled: true },
-				},
+				streaming: { buffer: { fastSwitchEnabled: true } },
 			});
 		});
 
@@ -68,94 +138,60 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
 			audio.removeEventListener("ended", handleEnded);
 			audio.pause();
-			if (dashPlayerRef.current) {
-				dashPlayerRef.current.destroy();
-			}
+			if (dashPlayerRef.current) dashPlayerRef.current.destroy();
 		};
-	}, []);
+	}, [skipToNext]);
 
 	useEffect(() => {
-		if (audioRef.current) {
-			audioRef.current.volume = volume;
-		}
+		if (audioRef.current) audioRef.current.volume = volume;
 	}, [volume]);
 
 	const playTrack = useCallback(
-		async (track: Song) => {
-			if (!audioRef.current) return;
-
-			// If same track, just toggle
-			if (
-				currentTrack?.title === track.title &&
-				currentTrack?.artist === track.artist
-			) {
-				if (isPlaying) {
-					audioRef.current.pause();
-					setIsPlaying(false);
-				} else {
-					audioRef.current.play().catch(console.error);
-					setIsPlaying(true);
-				}
-				return;
-			}
-
-			setCurrentTrack(track);
-			setIsPlaying(true);
-			setProgress(0);
-
-			try {
-				let streamUrl = track.streamUrl;
-				let manifestMimeType = "";
-				let manifest = "";
-
-				if (!streamUrl && track.tidalId) {
-					const info = await getStreamInfo(track.tidalId, "LOSSLESS");
-					console.log(`[Player] Stream Info:`, info);
-					streamUrl = info.streamUrl ?? "";
-					manifestMimeType = info.manifestMimeType;
-					manifest = info.manifest;
-					setAudioQuality(info.audioQuality);
-				}
-
-				const audio = audioRef.current;
-				const dashPlayer = dashPlayerRef.current;
-
-				if (
-					manifestMimeType === "application/dash+xml" &&
-					manifest &&
-					dashPlayer
-				) {
-					// Use dash.js for Lossless/Hi-Res
-					const decoded = atob(manifest);
-					const blob = new Blob([decoded], { type: "application/dash+xml" });
-					const blobUrl = URL.createObjectURL(blob);
-					dashPlayer.initialize(audio, blobUrl, true);
-				} else if (streamUrl) {
-					// Standard progressive download (BTS/MP3)
-					if (dashPlayer) dashPlayer.reset();
-					audio.src = streamUrl;
-					audio.play().catch(console.error);
-				} else {
-					// Fallback
-					audio.src = "/music/Damocles.m4a";
-					audio.play().catch(console.error);
-				}
-			} catch (err) {
-				console.error("Failed to load stream:", err);
-			}
+		(track: Song) => {
+			setQueue([track]);
+			queueRef.current = [track];
+			setCurrentIndex(0);
+			indexRef.current = 0;
+			playTrackInternal(track);
 		},
-		[currentTrack, isPlaying],
+		[playTrackInternal],
 	);
+
+	const playPlaylist = useCallback(
+		(tracks: Song[], startIdx = 0) => {
+			if (tracks.length === 0) return;
+			setQueue(tracks);
+			queueRef.current = tracks;
+			setCurrentIndex(startIdx);
+			indexRef.current = startIdx;
+			playTrackInternal(tracks[startIdx]);
+		},
+		[playTrackInternal],
+	);
+
+	const addToQueue = useCallback((track: Song) => {
+		setQueue((prev) => {
+			const next = [...prev, track];
+			queueRef.current = next;
+			return next;
+		});
+	}, []);
+
+	const playNext = useCallback((track: Song) => {
+		setQueue((prev) => {
+			const next = [...prev];
+			next.splice(indexRef.current + 1, 0, track);
+			queueRef.current = next;
+			return next;
+		});
+	}, []);
 
 	const togglePlay = useCallback(() => {
 		if (!audioRef.current || !currentTrack) return;
-
 		if (isPlaying) {
 			audioRef.current.pause();
 		} else {
-			audioRef.current
-				.play()
-				.catch((e) => console.error("Playback failed:", e));
+			audioRef.current.play().catch(console.error);
 		}
 		setIsPlaying(!isPlaying);
 	}, [isPlaying, currentTrack]);
@@ -177,6 +213,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		togglePlay,
 		seek,
 		setVolume,
+		addToQueue,
+		playNext,
+		playPlaylist,
 	};
 
 	return (

@@ -13,7 +13,6 @@ export interface ContextMenuItem {
 export interface ContextMenuState {
 	inLibrary: boolean;
 	isPinned: boolean;
-	blocked: boolean;
 }
 
 export function useContextMenu() {
@@ -121,8 +120,6 @@ export function useContextMenu() {
 		if (type === "track" || type === "video") {
 			menu.push({ label: "Track info", action: "track_info", icon: "Info" });
 		}
-		menu.push({ label: "Download", action: "download", icon: "Download" });
-
 		return menu;
 	};
 

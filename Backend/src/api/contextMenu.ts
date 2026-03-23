@@ -1,7 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/client.js";
-import { users, userLibrary, blockedItems } from "../db/schema.js";
+import { users, userLibrary } from "../db/schema.js";
 
 async function resolveUser(externalId: string) {
 	const [user] = await db
@@ -38,26 +38,12 @@ export async function contextMenuRoutes(app: FastifyInstance) {
 			)
 			.limit(1);
 
-		const [blocked] = await db
-			.select()
-			.from(blockedItems)
-			.where(
-				and(
-					eq(blockedItems.userId, user.id),
-					eq(blockedItems.itemId, id),
-					eq(blockedItems.itemType, type === "video" ? "track" : (type as any)),
-				),
-			)
-			.limit(1);
-
 		const isPinned = inLibrary?.isPinned ?? false;
-
 		return {
 			id,
 			type,
 			inLibrary: !!inLibrary,
 			isPinned,
-			blocked: !!blocked,
 		};
 	});
 }

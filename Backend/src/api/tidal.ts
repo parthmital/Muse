@@ -28,27 +28,6 @@ const colorCache = new (await import("lru-cache")).LRUCache<string, string>({
 	max: 1000,
 });
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function tidalImageUrl(
-	pictureId: string | undefined | null,
-	size: string | number = 640,
-	type: "square" | "video" = "square",
-): string | null {
-	if (!pictureId) return null;
-	if (
-		typeof pictureId === "string" &&
-		(pictureId.startsWith("http") ||
-			pictureId.startsWith("blob:") ||
-			pictureId.startsWith("assets/"))
-	) {
-		return pictureId;
-	}
-	// Normalize ID (replace slashes with dashes for URL safety in proxy route)
-	const id = pictureId.replace(/\//g, "-");
-	return `${config.apiBaseUrl}/tidal/images/${id}?size=${size}&type=${type}`;
-}
-
 function normalizeTrack(raw: any) {
 	if (!raw) return null;
 	return {
@@ -65,26 +44,26 @@ function normalizeTrack(raw: any) {
 			? {
 					id: raw.artist.id,
 					name: raw.artist.name,
-					picture: tidalImageUrl(raw.artist.picture),
+					picture: hifiClient.tidalImageUrl(raw.artist.picture),
 				}
 			: raw.artists?.[0]
 				? {
 						id: raw.artists[0].id,
 						name: raw.artists[0].name,
-						picture: tidalImageUrl(raw.artists[0].picture),
+						picture: hifiClient.tidalImageUrl(raw.artists[0].picture),
 					}
 				: null,
 		artists:
 			raw.artists?.map((a: any) => ({
 				id: a.id,
 				name: a.name,
-				picture: tidalImageUrl(a.picture),
+				picture: hifiClient.tidalImageUrl(a.picture),
 			})) ?? [],
 		album: raw.album
 			? {
 					id: raw.album.id,
 					title: raw.album.title,
-					cover: tidalImageUrl(raw.album.cover),
+					cover: hifiClient.tidalImageUrl(raw.album.cover),
 					vibrantColor: raw.album.vibrantColor,
 					releaseDate: raw.album.releaseDate,
 					type: raw.album.type,
@@ -97,7 +76,9 @@ function normalizeTrack(raw: any) {
 		key: raw.key,
 		keyScale: raw.keyScale,
 		imageId: raw.imageId,
-		videoCover: raw.imageId ? tidalImageUrl(raw.imageId, 1280, "video") : null,
+		videoCover: raw.imageId
+			? hifiClient.tidalImageUrl(raw.imageId, 1280, "video")
+			: null,
 	};
 }
 
@@ -107,7 +88,7 @@ function normalizeArtist(raw: any) {
 		id: raw.id,
 		name: raw.name,
 		popularity: raw.popularity,
-		picture: tidalImageUrl(raw.picture),
+		picture: hifiClient.tidalImageUrl(raw.picture),
 		url: raw.url,
 		artistTypes: raw.artistTypes,
 		mixes: raw.mixes ?? {},
@@ -119,7 +100,7 @@ function normalizeAlbum(raw: any) {
 	return {
 		id: raw.id,
 		title: raw.title,
-		cover: tidalImageUrl(raw.cover),
+		cover: hifiClient.tidalImageUrl(raw.cover),
 		vibrantColor: raw.vibrantColor,
 		releaseDate: raw.releaseDate,
 		numberOfTracks: raw.numberOfTracks,
@@ -132,20 +113,20 @@ function normalizeAlbum(raw: any) {
 			? {
 					id: raw.artist.id,
 					name: raw.artist.name,
-					picture: tidalImageUrl(raw.artist.picture),
+					picture: hifiClient.tidalImageUrl(raw.artist.picture),
 				}
 			: raw.artists?.[0]
 				? {
 						id: raw.artists[0].id,
 						name: raw.artists[0].name,
-						picture: tidalImageUrl(raw.artists[0].picture),
+						picture: hifiClient.tidalImageUrl(raw.artists[0].picture),
 					}
 				: null,
 		artists:
 			raw.artists?.map((a: any) => ({
 				id: a.id,
 				name: a.name,
-				picture: tidalImageUrl(a.picture),
+				picture: hifiClient.tidalImageUrl(a.picture),
 			})) ?? [],
 	};
 }
@@ -158,7 +139,7 @@ function normalizePlaylist(raw: any) {
 		description: raw.description,
 		numberOfTracks: raw.numberOfTracks,
 		duration: raw.duration,
-		image: tidalImageUrl(raw.image || raw.squareImage),
+		image: hifiClient.tidalImageUrl(raw.image || raw.squareImage),
 		url: raw.url,
 	};
 }
@@ -175,7 +156,7 @@ function normalizeMix(raw: any) {
 		title: raw.title,
 		subTitle: raw.subTitle,
 		description: raw.description,
-		cover: tidalImageUrl(cover),
+		cover: hifiClient.tidalImageUrl(cover),
 	};
 }
 
@@ -349,7 +330,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 				const res = await axios.get(url, {
 					responseType: "arraybuffer",
 					headers,
-					timeout: 10000,
+					timeout: 5000,
 				});
 				return res.data;
 			} catch {
@@ -363,7 +344,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 				const res = await axios.get(proxyUrl, {
 					responseType: "arraybuffer",
 					headers,
-					timeout: 12000,
+					timeout: 5000,
 				});
 				return res.data;
 			} catch {
@@ -493,7 +474,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 					const res = await axios.get(url, {
 						responseType: "arraybuffer",
 						headers,
-						timeout: 10000,
+						timeout: 5000,
 					});
 					return Buffer.from(res.data);
 				} catch {
@@ -502,7 +483,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 						const res = await axios.get(proxyUrl, {
 							responseType: "arraybuffer",
 							headers,
-							timeout: 12000,
+							timeout: 5000,
 						});
 						return Buffer.from(res.data);
 					} catch {
@@ -766,6 +747,9 @@ export async function tidalRoutes(app: FastifyInstance) {
 			streamCache.set(cacheK, result);
 			return result;
 		} catch (err: any) {
+			console.error(
+				`[Stream Error] trackId: ${trackId}, error: ${err.message}`,
+			);
 			return reply.status(502).send({ error: "Failed to fetch stream info" });
 		}
 	});
