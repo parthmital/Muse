@@ -3,10 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { IconButton } from "./ui/IconButton";
 import { TrackInfo } from "./TrackInfo";
-import { ActionMenu, ActionMenuItem } from "./ui/ActionMenu";
 import { usePlayer } from "@/context/PlayerContext";
 import { DynamicActionMenu } from "./DynamicActionMenu";
-import { usePlaylistManager } from "@/hooks/usePlaylistManager";
 import { formatPlaybackTime } from "@/utils/duration";
 
 export function Player() {
@@ -18,13 +16,13 @@ export function Player() {
 		togglePlay,
 		seek,
 		audioQuality,
+		skipToNext,
+		skipToPrev,
+		toggleShuffle,
+		toggleRepeat,
+		isShuffled,
+		repeatMode,
 	} = usePlayer();
-
-	const { isSongInPlaylist, toggleSongInPlaylist } = usePlaylistManager();
-
-	const songKey = currentTrack
-		? `${currentTrack.title}-${currentTrack.artist}`
-		: "";
 
 	const [isDragging, setIsDragging] = useState(false);
 	const [dragProgress, setDragProgress] = useState(0);
@@ -52,9 +50,7 @@ export function Player() {
 
 	useEffect(() => {
 		const handleMouseMove = (e: MouseEvent) => {
-			if (isDragging) {
-				handleDrag(e.clientX);
-			}
+			if (isDragging) handleDrag(e.clientX);
 		};
 
 		const handleMouseUp = (e: MouseEvent) => {
@@ -62,8 +58,7 @@ export function Player() {
 				if (progressBarRef.current && duration) {
 					const rect = progressBarRef.current.getBoundingClientRect();
 					const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-					const clickedPercent = x / rect.width;
-					seek(clickedPercent * duration);
+					seek((x / rect.width) * duration);
 				}
 				setIsDragging(false);
 			}
@@ -88,10 +83,20 @@ export function Player() {
 					alt={isPlaying ? "Pause" : "Play"}
 					onClick={togglePlay}
 				/>
-				<IconButton icon="Prev" alt="Previous" />
-				<IconButton icon="Next" alt="Next" />
-				<IconButton icon="Shuffle" alt="Shuffle" />
-				<IconButton icon="Loop" alt="Loop" />
+				<IconButton icon="Prev" alt="Previous" onClick={skipToPrev} />
+				<IconButton icon="Next" alt="Next" onClick={skipToNext} />
+				<IconButton
+					icon="Shuffle"
+					alt="Shuffle"
+					onClick={toggleShuffle}
+					filled={isShuffled}
+				/>
+				<IconButton
+					icon="Loop"
+					alt={`Repeat: ${repeatMode}`}
+					onClick={toggleRepeat}
+					filled={repeatMode !== "off"}
+				/>
 
 				<div className="flex grow items-center gap-4">
 					<p className="min-w-8 text-right text-xs text-neutral-400">
@@ -106,7 +111,6 @@ export function Player() {
 							className="absolute z-10 h-full rounded-lg bg-white"
 							style={{ width: `${progressPercent}%` }}
 						></div>
-						{/* Thumb/Dot */}
 						<div
 							className="absolute top-1/2 z-20 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
 							style={{ left: `${progressPercent}%` }}
@@ -126,6 +130,11 @@ export function Player() {
 						title={currentTrack?.title || "No track selected"}
 						artist={currentTrack?.artist || "Select a song to play"}
 					/>
+					{audioQuality && (
+						<span className="shrink-0 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-neutral-500 uppercase">
+							{audioQuality}
+						</span>
+					)}
 				</div>
 			</div>
 

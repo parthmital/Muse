@@ -8,12 +8,10 @@
  * Nightly rebuild scheduled via node-schedule.
  */
 
-import { eq, and, lte, inArray } from "drizzle-orm";
-import { sql } from "drizzle-orm";
 import schedule from "node-schedule";
 import pLimit from "p-limit";
-import { db, fromJson, toJson, runMigrations } from "../db/client.js";
-import { jobs } from "../db/schema.js";
+import { runMigrations } from "../db/client.js";
+import { getDb, fromJson, toJson } from "../db/helpers.js";
 import { config } from "../config.js";
 import { handleEnrichTrack } from "./jobs/enrichTrack.js";
 import { handleUpdateProfile } from "./jobs/updateProfile.js";
@@ -31,70 +29,57 @@ const limit = pLimit(config.workerConcurrency);
 let running = true;
 
 async function claimAndRun() {
+	const db = getDb();
 	const nowUnix = Math.floor(Date.now() / 1000);
 
-	// Atomic claim: update status to running and return claimed IDs
-	const pending = await db
-		.select({
-			id: jobs.id,
-			type: jobs.type,
-			payload: jobs.payload,
-			attempts: jobs.attempts,
-		})
-		.from(jobs)
-		.where(
-			and(eq(jobs.status, "pending"), lte(jobs.scheduledAt as any, nowUnix)),
+	const pending = db
+		.prepare(
+			"SELECT id, type, payload, attempts FROM jobs WHERE status = 'pending' AND scheduled_at <= ? LIMIT ?",
 		)
-		.limit(config.workerConcurrency);
+		.all(nowUnix, config.workerConcurrency) as any[];
 
 	if (!pending.length) return;
 
-	await db
-		.update(jobs)
-		.set({ status: "running", startedAt: nowUnix })
-		.where(
-			inArray(
-				jobs.id,
-				pending.map((j) => j.id),
-			),
-		);
+	const ids = pending.map((j: any) => j.id);
+	const placeholders = ids.map(() => "?").join(",");
+	db.prepare(
+		`UPDATE jobs SET status = 'running', started_at = ? WHERE id IN (${placeholders})`,
+	).run(nowUnix, ...ids);
 
 	await Promise.all(
-		pending.map((job) =>
+		pending.map((job: any) =>
 			limit(async () => {
 				const handler = HANDLERS[job.type as JobType];
 				if (!handler) {
-					await db
-						.update(jobs)
-						.set({
-							status: "failed",
-							error: `Unknown job type: ${job.type}`,
-							completedAt: Math.floor(Date.now() / 1000),
-						})
-						.where(eq(jobs.id, job.id));
+					db.prepare(
+						"UPDATE jobs SET status = 'failed', error = ?, completed_at = ? WHERE id = ?",
+					).run(
+						`Unknown job type: ${job.type}`,
+						Math.floor(Date.now() / 1000),
+						job.id,
+					);
 					return;
 				}
 
 				try {
 					const payload = fromJson(job.payload, {});
 					await handler(payload);
-					await db
-						.update(jobs)
-						.set({ status: "done", completedAt: Math.floor(Date.now() / 1000) })
-						.where(eq(jobs.id, job.id));
+					db.prepare(
+						"UPDATE jobs SET status = 'done', completed_at = ? WHERE id = ?",
+					).run(Math.floor(Date.now() / 1000), job.id);
 				} catch (err) {
 					const attempts = (job.attempts ?? 0) + 1;
 					const max = 3;
-					const retryIn = attempts * 60; // back-off: 1m, 2m, 3m
-					await db
-						.update(jobs)
-						.set({
-							status: attempts >= max ? "failed" : "pending",
-							attempts,
-							scheduledAt: Math.floor(Date.now() / 1000) + retryIn,
-							error: String(err),
-						})
-						.where(eq(jobs.id, job.id));
+					const retryIn = attempts * 60;
+					db.prepare(
+						"UPDATE jobs SET status = ?, attempts = ?, scheduled_at = ?, error = ? WHERE id = ?",
+					).run(
+						attempts >= max ? "failed" : "pending",
+						attempts,
+						Math.floor(Date.now() / 1000) + retryIn,
+						String(err),
+						job.id,
+					);
 				}
 			}),
 		),
@@ -121,12 +106,10 @@ schedule.scheduleJob("0 3 * * *", () => enqueueJob("rebuild_index", {}));
 
 // ── Public helpers for enqueuing ──────────────────────────────────────────────
 export async function enqueueJob(type: JobType, payload: unknown) {
-	await db.insert(jobs).values({
-		type,
-		payload: toJson(payload),
-		status: "pending",
-		scheduledAt: Math.floor(Date.now() / 1000),
-	});
+	const db = getDb();
+	db.prepare(
+		"INSERT INTO jobs (type, payload, status, scheduled_at) VALUES (?, ?, 'pending', ?)",
+	).run(type, toJson(payload), Math.floor(Date.now() / 1000));
 }
 
 export function scheduleEnrichTrack(trackId: string) {

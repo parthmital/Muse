@@ -1,11 +1,4 @@
-import { eq, inArray, desc, and, notInArray, gte } from "drizzle-orm";
-import { db, fromJson, toJson } from "../db/client.js";
-import {
-	tracks,
-	trackFeatures,
-	userInteractions,
-	userLibrary,
-} from "../db/schema.js";
+import { getDb, fromJson, toJson } from "../db/helpers.js";
 import {
 	featureCache,
 	recCache,
@@ -55,12 +48,10 @@ export async function recommend(opts: {
 
 	let queryVec = profile.profileVector;
 
-	// Blend with seed track for queue surface
 	if (surface === "queue" && seedTrackId) {
 		queryVec = await blendWithSeed(queryVec, seedTrackId);
 	}
 
-	// FAISS ANN search via Python service
 	const recentlyPlayed = await recentlyPlayedIds(userId);
 	const allExclude = [...new Set([...excludeIds, ...recentlyPlayed])];
 
@@ -74,13 +65,11 @@ export async function recommend(opts: {
 	const candidateIds = candidates.map((c) => c.id);
 	const faissScores = new Map(candidates.map((c) => [c.id, c.score]));
 
-	// Fetch track metadata + features
 	const [trackRows, featureRows] = await Promise.all([
 		fetchTracks(candidateIds),
 		fetchFeatures(candidateIds),
 	]);
 
-	// Score
 	const scored = score(
 		candidateIds,
 		faissScores,
@@ -90,7 +79,6 @@ export async function recommend(opts: {
 		recentlyPlayed,
 	);
 
-	// MMR re-rank
 	const selected = mmr(scored, featureRows, limit, config.diversityLambda);
 
 	const result = selected.map(([id, s]) => {
@@ -114,23 +102,26 @@ async function genericRecs(
 	limit: number,
 	excludeIds: string[],
 ): Promise<RecommendedTrack[]> {
-	const query = db
-		.select({
-			id: tracks.id,
-			title: tracks.title,
-			popularity: tracks.popularity,
-			artistId: tracks.artistId,
-			albumId: tracks.albumId,
-		})
-		.from(tracks)
-		.orderBy(desc(tracks.popularity))
-		.limit(limit);
+	const db = getDb();
 
+	let rows: any[];
 	if (excludeIds.length) {
-		query.where(notInArray(tracks.id, excludeIds));
+		const placeholders = excludeIds.map(() => "?").join(",");
+		rows = db
+			.prepare(
+				`SELECT id, title, popularity, artist_id, album_id FROM tracks 
+				WHERE id NOT IN (${placeholders}) 
+				ORDER BY popularity DESC LIMIT ?`,
+			)
+			.all(...excludeIds, limit) as any[];
+	} else {
+		rows = db
+			.prepare(
+				"SELECT id, title, popularity, artist_id, album_id FROM tracks ORDER BY popularity DESC LIMIT ?",
+			)
+			.all(limit) as any[];
 	}
 
-	const rows = await query;
 	return rows.map((t) => ({
 		trackId: t.id,
 		title: t.title,
@@ -153,14 +144,13 @@ type TrackRow = {
 };
 
 async function fetchTracks(ids: string[]): Promise<Map<string, TrackRow>> {
-	const rows = await db
-		.select({
-			id: tracks.id,
-			title: tracks.title,
-			popularity: tracks.popularity,
-		})
-		.from(tracks)
-		.where(inArray(tracks.id, ids));
+	const db = getDb();
+	const placeholders = ids.map(() => "?").join(",");
+	const rows = db
+		.prepare(
+			`SELECT id, title, popularity FROM tracks WHERE id IN (${placeholders})`,
+		)
+		.all(...ids) as any[];
 	return new Map(rows.map((r) => [r.id, r]));
 }
 
@@ -177,14 +167,17 @@ async function fetchFeatures(
 	}
 
 	if (uncached.length) {
-		const rows = await db
-			.select()
-			.from(trackFeatures)
-			.where(inArray(trackFeatures.trackId, uncached));
+		const db = getDb();
+		const placeholders = uncached.map(() => "?").join(",");
+		const rows = db
+			.prepare(
+				`SELECT * FROM track_features WHERE track_id IN (${placeholders})`,
+			)
+			.all(...uncached) as any[];
 
 		for (const r of rows) {
 			const cf: CachedFeatures = {
-				trackId: r.trackId,
+				trackId: r.track_id,
 				energy: r.energy,
 				valence: r.valence,
 				danceability: r.danceability,
@@ -192,32 +185,28 @@ async function fetchFeatures(
 				instrumentalness: r.instrumentalness,
 				loudness: r.loudness,
 				liveness: r.liveness,
-				spotifyTempo: r.spotifyTempo,
+				spotifyTempo: r.spotify_tempo,
 				genre: r.genre,
-				moodTags: fromJson<string[]>(r.moodTags, []),
+				moodTags: fromJson<string[]>(r.mood_tags, []),
 				embedding: fromJson<number[]>(r.embedding, []),
-				enrichmentStatus: r.enrichmentStatus ?? "pending",
+				enrichmentStatus: r.enrichment_status ?? "pending",
 			};
-			featureCache.set(r.trackId, cf);
-			result.set(r.trackId, cf);
+			featureCache.set(r.track_id, cf);
+			result.set(r.track_id, cf);
 		}
 	}
 	return result;
 }
 
 async function recentlyPlayedIds(userId: string): Promise<Set<string>> {
+	const db = getDb();
 	const cutoffSec = Math.floor(Date.now() / 1000) - 7 * 86400;
-	const rows = await db
-		.select({ trackId: userInteractions.trackId })
-		.from(userInteractions)
-		.where(
-			and(
-				eq(userInteractions.userId, userId),
-				eq(userInteractions.eventType, "play"),
-				gte(userInteractions.occurredAt as any, cutoffSec),
-			),
-		);
-	return new Set(rows.map((r) => r.trackId).filter(Boolean) as string[]);
+	const rows = db
+		.prepare(
+			"SELECT track_id FROM user_interactions WHERE user_id = ? AND event_type = 'play' AND occurred_at >= ?",
+		)
+		.all(userId, cutoffSec) as any[];
+	return new Set(rows.map((r) => r.track_id).filter(Boolean) as string[]);
 }
 
 async function blendWithSeed(
@@ -359,38 +348,24 @@ function l2norm(v: number[]): number[] {
 
 // ── Radio Seeds ───────────────────────────────────────────────────────────────
 
-/**
- * Backend implementation of pickRadioSeeds from Music Playback.txt
- * Collects tracks from user history, favorites, and playlists to seed a radio session.
- */
 export async function pickRadioSeeds(userId: string): Promise<string[]> {
-	const [historyRows, libraryRows] = await Promise.all([
-		// 1. History (most played / recent)
-		db
-			.select({ id: userInteractions.trackId })
-			.from(userInteractions)
-			.where(
-				and(
-					eq(userInteractions.userId, userId),
-					eq(userInteractions.eventType, "play"),
-				),
-			)
-			.orderBy(desc(userInteractions.occurredAt))
-			.limit(100),
-		// 2. Favorites (user library tracks)
-		db
-			.select({ id: userLibrary.itemId })
-			.from(userLibrary)
-			.where(
-				and(eq(userLibrary.userId, userId), eq(userLibrary.itemType, "track")),
-			)
-			.limit(100),
-	]);
+	const db = getDb();
+
+	const historyRows = db
+		.prepare(
+			"SELECT track_id as id FROM user_interactions WHERE user_id = ? AND event_type = 'play' ORDER BY occurred_at DESC LIMIT 100",
+		)
+		.all(userId) as any[];
+
+	const libraryRows = db
+		.prepare(
+			"SELECT item_id as id FROM user_library WHERE user_id = ? AND item_type = 'track' LIMIT 100",
+		)
+		.all(userId) as any[];
 
 	const history = historyRows.map((r) => r.id).filter(Boolean) as string[];
 	const library = libraryRows.map((r) => r.id).filter(Boolean) as string[];
 
-	// Combine, shuffle, and take top 50
 	const combined = [...new Set([...history, ...library])];
 	for (let i = combined.length - 1; i > 0; i--) {
 		const j = Math.floor(Math.random() * (i + 1));

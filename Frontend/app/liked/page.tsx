@@ -7,9 +7,9 @@ import { SongListHeader } from "@/components/SongListHeader";
 import { useSongActions } from "@/hooks/useSongActions";
 import { useSorting } from "@/hooks/useSorting";
 import { durationToSeconds } from "@/utils/duration";
+import { API_BASE, swrFetcher } from "@/lib/api";
 
 import useSWR from "swr";
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const LIKED_SONGS_SORT_OPTIONS = [
 	{ value: "recently-added", label: "Recently Added" },
@@ -49,7 +49,7 @@ export default function LikedPage() {
 	// Fetch all library data from backend
 	const { data: libraryData } = useSWR<{
 		library: { itemType: string; itemId: string }[];
-	}>("http://localhost:8000/library", fetcher);
+	}>(`${API_BASE}/library`, swrFetcher);
 
 	// In a real scenario we need to fetch tracks by ID.
 	// Since we are decoupling from mock ALL_SONGS, we default to empty array or fetch actual tracks.

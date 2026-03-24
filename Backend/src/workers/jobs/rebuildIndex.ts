@@ -1,21 +1,18 @@
-import { eq } from "drizzle-orm";
-import { db, fromJson } from "../../db/client.js";
-import { trackFeatures } from "../../db/schema.js";
+import { getDb, fromJson } from "../../db/helpers.js";
 import { embeddingClient } from "../../services/embeddingClient.js";
 
 export async function handleRebuildIndex(_payload: unknown) {
-	const rows = await db
-		.select({
-			trackId: trackFeatures.trackId,
-			embedding: trackFeatures.embedding,
-		})
-		.from(trackFeatures)
-		.where(eq(trackFeatures.enrichmentStatus, "done"));
+	const db = getDb();
+	const rows = db
+		.prepare(
+			"SELECT track_id, embedding FROM track_features WHERE enrichment_status = 'done'",
+		)
+		.all() as any[];
 
 	const vectors: Record<string, number[]> = {};
 	for (const r of rows) {
 		const emb = fromJson<number[]>(r.embedding, []);
-		if (emb.length) vectors[r.trackId] = emb;
+		if (emb.length) vectors[r.track_id] = emb;
 	}
 
 	console.log(

@@ -13,9 +13,8 @@ import { libraryRoutes } from "./api/library.js";
 import { browseRoutes } from "./api/browse.js";
 import { contextMenuRoutes } from "./api/contextMenu.js";
 import { actionRoutes } from "./api/actions.js";
-import { runMigrations, db } from "./db/client.js";
-import { eq } from "drizzle-orm";
-import { users, userProfiles } from "./db/schema.js";
+import { db, runMigrations } from "./db/client.js";
+import { resolveUser } from "./db/helpers.js";
 import { embeddingClient } from "./services/embeddingClient.js";
 
 const app = Fastify({
@@ -33,32 +32,21 @@ try {
 	runMigrations();
 
 	const DEV_USER_ID = "dev-user-001";
-	const [existing] = await db
-		.select()
-		.from(users)
-		.where(eq(users.externalId, DEV_USER_ID))
-		.limit(1);
+	const existing = resolveUser(DEV_USER_ID);
 
 	if (!existing) {
 		console.log("Initializing dev user...");
-		await db.insert(users).values({
-			id: DEV_USER_ID,
-			externalId: DEV_USER_ID,
-			isNew: false,
-		});
-		// Also create a profile
-		await db.insert(userProfiles).values({
-			userId: DEV_USER_ID,
-			profileVector: "[]",
-			totalPlayCount: 0,
-		});
+		db.prepare(
+			"INSERT OR IGNORE INTO users (id, external_id, is_new) VALUES (?, ?, 0)",
+		).run(DEV_USER_ID, DEV_USER_ID);
+		db.prepare(
+			"INSERT OR IGNORE INTO user_profiles (user_id, profile_vector, total_play_count) VALUES (?, '[]', 0)",
+		).run(DEV_USER_ID);
 	}
 
 	// Check Tidal-API health
 	try {
-		const res = await axios.get(`${config.tidalApiBaseUrl}/`, {
-			timeout: 2000,
-		});
+		await axios.get(`${config.tidalApiBaseUrl}/`, { timeout: 2000 });
 		console.log(`[Health] Tidal-API is UP at ${config.tidalApiBaseUrl}`);
 	} catch (e: any) {
 		console.warn(

@@ -3,17 +3,23 @@
 import useSWR from "swr";
 import { useCallback, useMemo } from "react";
 import { MediaItem } from "@/components/MediaCard";
-
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+import {
+	API_BASE,
+	swrFetcher,
+	addToLibrary,
+	removeFromLibrary,
+	createPlaylist,
+	deletePlaylist,
+} from "@/lib/api";
 
 export function useLibraryManager() {
 	const { data: libraryData, mutate: mutateLibrary } = useSWR<{
 		library: { itemType: string; itemId: string; isPinned: boolean }[];
-	}>("http://localhost:8000/library", fetcher);
+	}>(`${API_BASE}/library`, swrFetcher);
 
 	const { data: playlistsData, mutate: mutatePlaylists } = useSWR<{
 		playlists: { id: string; title: string; description?: string }[];
-	}>("http://localhost:8000/playlists", fetcher);
+	}>(`${API_BASE}/playlists`, swrFetcher);
 
 	const libraryAlbums = useMemo(() => {
 		const dict: Record<string, boolean> = {};
@@ -66,17 +72,9 @@ export function useLibraryManager() {
 		currentState: boolean,
 	) => {
 		if (currentState) {
-			await fetch("http://localhost:8000/library", {
-				method: "DELETE",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ itemType, itemId }),
-			});
+			await removeFromLibrary(itemType, itemId);
 		} else {
-			await fetch("http://localhost:8000/library", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ itemType, itemId }),
-			});
+			await addToLibrary(itemType, itemId);
 		}
 		mutateLibrary();
 	};
@@ -101,19 +99,14 @@ export function useLibraryManager() {
 
 	const togglePin = useCallback(
 		(title: string, currentState: boolean) => {
-			// In a full impl this would toggle the isPinned in DB. For now it is just locally missing.
-			// Add pinning endpoint to backend to fully support this.
+			// TODO: wire to toggle_pin action endpoint
 		},
 		[pinnedItems],
 	);
 
 	const addCustomPlaylist = useCallback(
 		async (playlist: MediaItem) => {
-			await fetch("http://localhost:8000/playlists", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title: playlist.title }),
-			});
+			await createPlaylist(playlist.title);
 			mutatePlaylists();
 		},
 		[mutatePlaylists],
@@ -123,9 +116,7 @@ export function useLibraryManager() {
 		async (title: string) => {
 			const playlist = playlistsData?.playlists.find((p) => p.title === title);
 			if (!playlist) return;
-			await fetch(`http://localhost:8000/playlists/${playlist.id}`, {
-				method: "DELETE",
-			});
+			await deletePlaylist(playlist.id);
 			mutatePlaylists();
 		},
 		[playlistsData, mutatePlaylists],

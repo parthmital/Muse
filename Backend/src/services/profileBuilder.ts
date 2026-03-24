@@ -1,6 +1,4 @@
-import { eq, inArray, desc, and, gte } from "drizzle-orm";
-import { db, fromJson, toJson } from "../db/client.js";
-import { userInteractions, trackFeatures, userProfiles } from "../db/schema.js";
+import { getDb, fromJson, toJson } from "../db/helpers.js";
 import {
 	profileCache,
 	invalidateProfile,
@@ -29,49 +27,47 @@ function completionMult(ratio: number): number {
 export async function buildProfile(
 	userId: string,
 ): Promise<CachedProfile | null> {
+	const db = getDb();
+
 	// Fetch interactions (last 5000)
-	const interactions = await db
-		.select()
-		.from(userInteractions)
-		.where(eq(userInteractions.userId, userId))
-		.orderBy(desc(userInteractions.occurredAt))
-		.limit(5000);
+	const interactions = db
+		.prepare(
+			"SELECT * FROM user_interactions WHERE user_id = ? ORDER BY occurred_at DESC LIMIT 5000",
+		)
+		.all(userId) as any[];
 
 	if (!interactions.length) return null;
 
 	const trackIds = [
-		...new Set(interactions.map((i) => i.trackId).filter(Boolean) as string[]),
+		...new Set(interactions.map((i) => i.track_id).filter(Boolean) as string[]),
 	];
 
-	const features = await db
-		.select()
-		.from(trackFeatures)
-		.where(
-			and(
-				inArray(trackFeatures.trackId, trackIds),
-				eq(trackFeatures.enrichmentStatus, "done"),
-			),
-		);
+	const placeholders = trackIds.map(() => "?").join(",");
+	const features = db
+		.prepare(
+			`SELECT * FROM track_features WHERE track_id IN (${placeholders}) AND enrichment_status = 'done'`,
+		)
+		.all(...trackIds) as any[];
 
-	const featMap = new Map(features.map((f) => [f.trackId, f]));
+	const featMap = new Map(features.map((f) => [f.track_id, f]));
 
 	// Compute per-track weights
 	const nowSec = Math.floor(Date.now() / 1000);
 	const weightMap = new Map<string, number>();
 
 	for (const i of interactions) {
-		if (!i.trackId) continue;
-		const base = EVENT_WEIGHT[i.eventType] ?? 0;
+		if (!i.track_id) continue;
+		const base = EVENT_WEIGHT[i.event_type] ?? 0;
 		if (base === 0) continue;
 		let w = base;
-		if (i.eventType === "play" && i.completionRatio != null) {
-			w *= completionMult(i.completionRatio);
+		if (i.event_type === "play" && i.completion_ratio != null) {
+			w *= completionMult(i.completion_ratio);
 		}
-		const daysAgo = (nowSec - (i.occurredAt ?? nowSec)) / 86400;
+		const daysAgo = (nowSec - (i.occurred_at ?? nowSec)) / 86400;
 		const decay = Math.exp(-daysAgo / config.recencyDecayDays);
 		weightMap.set(
-			i.trackId,
-			Math.min(5, Math.max(-3, (weightMap.get(i.trackId) ?? 0) + w * decay)),
+			i.track_id,
+			Math.min(5, Math.max(-3, (weightMap.get(i.track_id) ?? 0) + w * decay)),
 		);
 	}
 
@@ -152,36 +148,33 @@ export async function buildProfile(
 		totalPlayCount: interactions.length,
 	};
 
-	// Persist to SQLite
+	// Persist to SQLite (upsert)
 	const nowUnix = Math.floor(Date.now() / 1000);
-	await db
-		.insert(userProfiles)
-		.values({
-			userId,
-			profileVector: toJson(profileVectorArr),
-			avgEnergy: profile.avgEnergy,
-			avgValence: profile.avgValence,
-			avgDanceability: profile.avgDanceability,
-			avgAcousticness: profile.avgAcousticness,
-			preferredGenres: toJson(preferredGenres),
-			totalPlayCount: interactions.length,
-			uniqueTracksPlayed: trackIds.length,
-			updatedAt: nowUnix,
-		})
-		.onConflictDoUpdate({
-			target: userProfiles.userId,
-			set: {
-				profileVector: toJson(profileVectorArr),
-				avgEnergy: profile.avgEnergy,
-				avgValence: profile.avgValence,
-				avgDanceability: profile.avgDanceability,
-				avgAcousticness: profile.avgAcousticness,
-				preferredGenres: toJson(preferredGenres),
-				totalPlayCount: interactions.length,
-				uniqueTracksPlayed: trackIds.length,
-				updatedAt: nowUnix,
-			},
-		});
+	db.prepare(
+		`INSERT INTO user_profiles (user_id, profile_vector, avg_energy, avg_valence, avg_danceability, avg_acousticness, preferred_genres, total_play_count, unique_tracks_played, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user_id) DO UPDATE SET
+			profile_vector = excluded.profile_vector,
+			avg_energy = excluded.avg_energy,
+			avg_valence = excluded.avg_valence,
+			avg_danceability = excluded.avg_danceability,
+			avg_acousticness = excluded.avg_acousticness,
+			preferred_genres = excluded.preferred_genres,
+			total_play_count = excluded.total_play_count,
+			unique_tracks_played = excluded.unique_tracks_played,
+			updated_at = excluded.updated_at`,
+	).run(
+		userId,
+		toJson(profileVectorArr),
+		profile.avgEnergy,
+		profile.avgValence,
+		profile.avgDanceability,
+		profile.avgAcousticness,
+		toJson(preferredGenres),
+		interactions.length,
+		trackIds.length,
+		nowUnix,
+	);
 
 	profileCache.set(userId, profile);
 	invalidateProfile(userId);
@@ -194,23 +187,22 @@ export async function getProfile(
 	const cached = profileCache.get(userId);
 	if (cached) return cached;
 
-	const [row] = await db
-		.select()
-		.from(userProfiles)
-		.where(eq(userProfiles.userId, userId))
-		.limit(1);
+	const db = getDb();
+	const row = db
+		.prepare("SELECT * FROM user_profiles WHERE user_id = ? LIMIT 1")
+		.get(userId) as any;
 
 	if (!row) return null;
 
 	const profile: CachedProfile = {
 		userId,
-		profileVector: fromJson<number[]>(row.profileVector, []),
-		avgEnergy: row.avgEnergy,
-		avgValence: row.avgValence,
-		avgDanceability: row.avgDanceability,
-		avgAcousticness: row.avgAcousticness,
-		preferredGenres: fromJson<Record<string, number>>(row.preferredGenres, {}),
-		totalPlayCount: row.totalPlayCount ?? 0,
+		profileVector: fromJson<number[]>(row.profile_vector, []),
+		avgEnergy: row.avg_energy,
+		avgValence: row.avg_valence,
+		avgDanceability: row.avg_danceability,
+		avgAcousticness: row.avg_acousticness,
+		preferredGenres: fromJson<Record<string, number>>(row.preferred_genres, {}),
+		totalPlayCount: row.total_play_count ?? 0,
 	};
 	profileCache.set(userId, profile);
 	return profile;

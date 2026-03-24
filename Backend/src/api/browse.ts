@@ -1,16 +1,10 @@
 import { FastifyInstance } from "fastify";
-import { db } from "../db/client.js";
-import { desc, eq } from "drizzle-orm";
-import { searchHistory, users } from "../db/schema.js";
+import { getDb, fromJson } from "../db/helpers.js";
 import { hifiClient } from "../services/hifiClient.js";
 
-// ── Handlers ─────────────────────────────────────────────────────────────────
-
 export async function browseRoutes(app: FastifyInstance) {
-	/**
-	 * Returns categories for the search/browse page.
-	 * Now derived from a set of canonical genres.
-	 */
+	const DEV_USER_ID = "dev-user-001";
+
 	app.get("/browse/search-sections", async () => {
 		const genres = [
 			"Pop",
@@ -25,75 +19,72 @@ export async function browseRoutes(app: FastifyInstance) {
 			"Country",
 			"Lo-Fi",
 			"Study",
-			"workout",
+			"Workout",
 		];
 
-		const categories = [
-			{
-				title: "For You",
-				items: ["Made For You", "New Releases", "Charts", "Trending"],
-			},
-			{
-				title: "Genres & Moods",
-				items: genres,
-			},
-		];
-
-		return { categories };
+		return {
+			categories: [
+				{
+					title: "For You",
+					items: ["Made For You", "New Releases", "Charts", "Trending"],
+				},
+				{ title: "Genres & Moods", items: genres },
+			],
+		};
 	});
 
-	/**
-	 * Pulls the user's recent search history from the DB.
-	 * If empty, fetches some "trending" items dynamically from Tidal.
-	 */
 	app.get("/browse/recent-searches", async () => {
+		const db = getDb();
 		try {
-			const history = await db
-				.select()
-				.from(searchHistory)
-				.orderBy(desc(searchHistory.searchedAt))
-				.limit(10);
+			const history = db
+				.prepare(
+					"SELECT * FROM search_history WHERE user_id = ? ORDER BY searched_at DESC LIMIT 10",
+				)
+				.all(DEV_USER_ID) as any[];
 
-			if (history && history.length > 0) {
+			if (history.length > 0) {
 				return {
-					items: history.map((h) => ({
-						title: h.query || (h.metadata as any)?.title || "Unknown",
-						type: h.itemType,
-						tidalId: h.itemId ? parseInt(h.itemId, 10) : undefined,
-						imageUrl: h.imageUrl,
-						...((h.metadata as any) || {}),
-					})),
+					items: history.map((h) => {
+						const meta = fromJson(h.metadata, {} as any);
+						return {
+							title: h.query || meta?.title || "Unknown",
+							type: h.item_type,
+							tidalId: h.item_id ? parseInt(h.item_id, 10) : undefined,
+							imageUrl: h.image_url,
+							...meta,
+						};
+					}),
 				};
 			}
-		} catch (e) {
-			// Fail through to discovery
+		} catch {
+			// Fall through to discovery
 		}
 
-		// Discovery fallback: Search for some "seed" popular content
+		// Discovery fallback
 		try {
 			const [popularTracks, popularArtists] = await Promise.all([
 				hifiClient.searchTracks("Trending", 4),
 				hifiClient.searchArtists("Daft Punk", 2),
 			]);
 
-			const items = [
-				...popularArtists.artists.items.map((a) => ({
-					tidalId: Number(a.id),
-					title: a.name,
-					type: "artist",
-					imageUrl: hifiClient.tidalImageUrl(a.picture),
-				})),
-				...popularTracks.items.map((t) => ({
-					tidalId: Number(t.id),
-					title: t.title,
-					artist: t.artist?.name,
-					type: "track",
-					imageUrl: hifiClient.tidalImageUrl(t.imageId),
-				})),
-			];
-
-			return { items };
-		} catch (err) {
+			return {
+				items: [
+					...popularArtists.artists.items.map((a) => ({
+						tidalId: Number(a.id),
+						title: a.name,
+						type: "artist",
+						imageUrl: hifiClient.tidalImageUrl(a.picture),
+					})),
+					...popularTracks.items.map((t) => ({
+						tidalId: Number(t.id),
+						title: t.title,
+						artist: t.artist?.name,
+						type: "track",
+						imageUrl: hifiClient.tidalImageUrl(t.imageId),
+					})),
+				],
+			};
+		} catch {
 			return { items: [] };
 		}
 	});
@@ -106,36 +97,85 @@ export async function browseRoutes(app: FastifyInstance) {
 			imageUrl?: string;
 			metadata?: any;
 		};
-	}>("/browse/searches", async (req, reply) => {
+	}>("/browse/searches", async (req) => {
 		const { query, itemType, itemId, imageUrl, metadata } = req.body;
+		const db = getDb();
 
-		// Link to the primary development user
-		const DEV_USER_ID = "dev-user-001";
-		let [user] = await db
-			.select()
-			.from(users)
-			.where(eq(users.id, DEV_USER_ID))
-			.limit(1);
-
-		if (!user) {
-			// Fallback to any user if dev user doesn't exist
-			[user] = await db.select().from(users).limit(1);
-		}
-
-		if (!user) {
-			return reply.status(401).send({ error: "No user found to link history" });
-		}
-
-		await db.insert(searchHistory).values({
-			userId: user.id,
-			query,
-			itemType,
-			itemId,
-			imageUrl,
-			metadata: metadata ? JSON.stringify(metadata) : null,
-			searchedAt: Math.floor(Date.now() / 1000),
-		});
+		db.prepare(
+			"INSERT INTO search_history (user_id, query, item_type, item_id, image_url, metadata, searched_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		).run(
+			DEV_USER_ID,
+			query || null,
+			itemType || null,
+			itemId || null,
+			imageUrl || null,
+			metadata ? JSON.stringify(metadata) : null,
+			Math.floor(Date.now() / 1000),
+		);
 
 		return { success: true };
+	});
+
+	// ── Home page aggregation endpoint ─────────────────────────────────────
+	app.get("/browse/home", async () => {
+		try {
+			const [trackRes, albumRes, artistRes] = await Promise.allSettled([
+				hifiClient.searchTracks("trending", 10),
+				hifiClient.searchAlbums("new releases", 10),
+				hifiClient.searchArtists("popular", 8),
+			]);
+
+			const trending =
+				trackRes.status === "fulfilled" ? trackRes.value.items : [];
+			const albums =
+				albumRes.status === "fulfilled" ? albumRes.value.items : [];
+			const artists =
+				artistRes.status === "fulfilled"
+					? (artistRes.value.artists?.items ?? [])
+					: [];
+
+			return {
+				shelves: [
+					{
+						title: "Trending Tracks",
+						type: "tracks",
+						items: trending.map((t) => ({
+							id: t.id,
+							title: t.album?.title ?? t.title,
+							artist: t.artist?.name ?? t.artists?.[0]?.name,
+							tidalId: t.album?.id ?? t.id,
+							imageUrl: hifiClient.tidalImageUrl(t.album?.cover),
+							type: "album",
+						})),
+					},
+					{
+						title: "Popular Artists",
+						type: "artists",
+						items: artists.map((a) => ({
+							id: a.id,
+							title: a.name,
+							tidalId: a.id,
+							imageUrl: hifiClient.tidalImageUrl(a.picture),
+							type: "artist",
+						})),
+					},
+					{
+						title: "New Albums",
+						type: "albums",
+						items: albums.map((al: any) => ({
+							id: al.id,
+							title: al.title,
+							artist: al.artist?.name ?? al.artists?.[0]?.name,
+							tidalId: al.id,
+							imageUrl: hifiClient.tidalImageUrl(al.cover),
+							type: "album",
+							songs: al.numberOfTracks,
+						})),
+					},
+				],
+			};
+		} catch {
+			return { shelves: [] };
+		}
 	});
 }

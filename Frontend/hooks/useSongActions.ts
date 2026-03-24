@@ -2,8 +2,7 @@
 
 import useSWR from "swr";
 import { useCallback, useMemo } from "react";
-
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+import { API_BASE, swrFetcher } from "@/lib/api";
 
 /**
  * Manages liked songs and library songs via SWR.
@@ -11,7 +10,7 @@ const fetcher = (url: string) => fetch(url).then((res) => res.json());
 export function useSongActions() {
 	const { data: libraryData, mutate: mutateLibrary } = useSWR<{
 		library: { itemType: string; itemId: string; isPinned: boolean }[];
-	}>("http://localhost:8000/library", fetcher);
+	}>(`${API_BASE}/library`, swrFetcher);
 
 	const isInitialized = libraryData !== undefined;
 
@@ -37,13 +36,13 @@ export function useSongActions() {
 		currentState: boolean,
 	) => {
 		if (currentState) {
-			await fetch("http://localhost:8000/library", {
+			await fetch(`${API_BASE}/library`, {
 				method: "DELETE",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ itemType, itemId }),
 			});
 		} else {
-			await fetch("http://localhost:8000/library", {
+			await fetch(`${API_BASE}/library`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ itemType, itemId }),

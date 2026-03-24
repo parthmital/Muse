@@ -1,17 +1,21 @@
 import { useContextMenu, ContextMenuItem } from "@/hooks/useContextMenu";
 import { ActionMenu, ActionMenuItem } from "./ui/ActionMenu";
 import { usePlayer } from "@/context/PlayerContext";
-import { ReactNode, useState, useEffect, useCallback, useMemo } from "react";
+import { ReactNode, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { Dialog } from "./ui/Dialog";
+import { usePlaylistManager } from "@/hooks/usePlaylistManager";
+import { getRecommendations, addTrackToPlaylist } from "@/lib/api";
+import { tidalTrackToSong } from "@/lib/tidalAdapter";
 
 interface DynamicActionMenuProps {
 	type: string;
-	id: string; // TIDAL ID
+	id: string;
 	trigger?: ReactNode;
 	align?: "left" | "right";
 	placement?: "top" | "bottom" | "left" | "right";
 	onActionSuccess?: (action: string, data: any) => void;
-	song?: any; // For track/video specific data
+	song?: any;
 	openOnClick?: boolean;
 }
 
@@ -54,12 +58,15 @@ export function DynamicActionMenu({
 		}
 
 		if (item.action === "mix") {
-			if (song && song.tidalId) {
-				const recommendations = await fetch(
-					`http://localhost:8000/tidal/tracks/${song.tidalId}/recommendations`,
-				).then((res) => res.json());
-				if (recommendations.items) {
-					playPlaylist([song, ...recommendations.items]);
+			if (song?.tidalId) {
+				try {
+					const recommendations = await getRecommendations(song.tidalId);
+					if (recommendations.items) {
+						const recSongs = recommendations.items.map(tidalTrackToSong);
+						playPlaylist([song, ...recSongs]);
+					}
+				} catch {
+					// Silently fail
 				}
 			}
 			return;
@@ -152,7 +159,7 @@ export function DynamicActionMenu({
 						</div>
 						<div>
 							<p className="text-neutral-500">Tidal ID</p>
-							<p className="text-white font-mono">{song?.tidalId}</p>
+							<p className="font-mono text-white">{song?.tidalId}</p>
 						</div>
 					</div>
 				</div>
@@ -170,9 +177,6 @@ export function DynamicActionMenu({
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-import { Dialog } from "./ui/Dialog";
-import { usePlaylistManager } from "@/hooks/usePlaylistManager";
-
 function PlaylistSelectDialog({
 	isOpen,
 	onClose,
@@ -186,11 +190,10 @@ function PlaylistSelectDialog({
 	const playlists = data?.playlists || [];
 
 	const handleAdd = async (playlistId: string) => {
-		await fetch(`http://localhost:8000/playlists/${playlistId}/tracks`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ trackId: song?.tidalId || song?.id }),
-		});
+		await addTrackToPlaylist(
+			playlistId,
+			String(song?.tidalId || song?.id || ""),
+		);
 		onClose();
 	};
 

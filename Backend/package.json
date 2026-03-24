@@ -19,7 +19,6 @@
 		"axios": "^1.7.2",
 		"better-sqlite3": "^9.6.0",
 		"dotenv": "^16.4.5",
-		"drizzle-orm": "^0.31.2",
 		"fast-average-color": "^9.5.0",
 		"fastify": "^4.27.0",
 		"fastq": "^1.17.1",
@@ -36,7 +35,6 @@
 		"@types/better-sqlite3": "^7.6.10",
 		"@types/node": "^20.14.2",
 		"@types/node-schedule": "^2.1.7",
-		"drizzle-kit": "^0.22.7",
 		"tsx": "^4.15.7",
 		"typescript": "^5.4.5"
 	}

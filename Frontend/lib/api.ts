@@ -4,9 +4,11 @@
  * Frontend API client for the Muse backend.
  * All TIDAL data flows through the Muse backend's /tidal/* proxy routes,
  * which handle caching, authentication, and data normalization.
+ *
+ * SINGLE SOURCE OF TRUTH for API_BASE.
  */
 
-const API_BASE =
+export const API_BASE =
 	process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -82,7 +84,7 @@ export interface TidalAlbum {
 }
 
 export interface TidalPlaylist {
-	id: string; // UUID
+	id: string;
 	title: string;
 	description?: string;
 	numberOfTracks?: number;
@@ -117,6 +119,20 @@ export interface StreamInfo {
 	sampleRate?: number;
 }
 
+export interface HomeShelf {
+	title: string;
+	type: string;
+	items: Array<{
+		id: number | string;
+		title: string;
+		artist?: string;
+		tidalId: number | string;
+		imageUrl?: string | null;
+		type: string;
+		songs?: number;
+	}>;
+}
+
 // ── Fetch helper ─────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -147,6 +163,10 @@ export class ApiError extends Error {
 		this.name = "ApiError";
 	}
 }
+
+// ── SWR fetcher (single export for reuse) ────────────────────────────────────
+
+export const swrFetcher = (url: string) => fetch(url).then((r) => r.json());
 
 // ── Search ───────────────────────────────────────────────────────────────────
 
@@ -228,6 +248,23 @@ export async function getRecentSearches(): Promise<{ items: any[] }> {
 	return apiFetch(`/browse/recent-searches`);
 }
 
+export async function getHomeShelves(): Promise<{ shelves: HomeShelf[] }> {
+	return apiFetch(`/browse/home`);
+}
+
+export async function saveSearch(data: {
+	query?: string;
+	itemType?: string;
+	itemId?: string;
+	imageUrl?: string;
+	metadata?: any;
+}): Promise<{ success: boolean }> {
+	return apiFetch(`/browse/searches`, {
+		method: "POST",
+		body: JSON.stringify(data),
+	});
+}
+
 // ── Track ────────────────────────────────────────────────────────────────────
 
 export async function getTrackInfo(trackId: number): Promise<TidalTrack> {
@@ -302,6 +339,102 @@ export async function getMix(
 	mixId: string,
 ): Promise<{ mix: any; tracks: TidalTrack[] }> {
 	return apiFetch(`/tidal/mixes/${mixId}`);
+}
+
+// ── Library ──────────────────────────────────────────────────────────────────
+
+export async function getLibrary(): Promise<{
+	library: { itemType: string; itemId: string; isPinned: boolean }[];
+}> {
+	return apiFetch(`/library`);
+}
+
+export async function addToLibrary(
+	itemType: string,
+	itemId: string,
+): Promise<{ success: boolean }> {
+	return apiFetch(`/library`, {
+		method: "POST",
+		body: JSON.stringify({ itemType, itemId }),
+	});
+}
+
+export async function removeFromLibrary(
+	itemType: string,
+	itemId: string,
+): Promise<{ success: boolean }> {
+	return apiFetch(`/library`, {
+		method: "DELETE",
+		body: JSON.stringify({ itemType, itemId }),
+	});
+}
+
+// ── Playlists ────────────────────────────────────────────────────────────────
+
+export async function getPlaylists(): Promise<{
+	playlists: { id: string; title: string; description?: string }[];
+}> {
+	return apiFetch(`/playlists`);
+}
+
+export async function createPlaylist(
+	title: string,
+	description?: string,
+): Promise<{ id: string; success: boolean }> {
+	return apiFetch(`/playlists`, {
+		method: "POST",
+		body: JSON.stringify({ title, description }),
+	});
+}
+
+export async function deletePlaylist(
+	id: string,
+): Promise<{ success: boolean }> {
+	return apiFetch(`/playlists/${id}`, { method: "DELETE" });
+}
+
+export async function addTrackToPlaylist(
+	playlistId: string,
+	trackId: string,
+): Promise<{ success: boolean }> {
+	return apiFetch(`/playlists/${playlistId}/tracks`, {
+		method: "POST",
+		body: JSON.stringify({ trackId }),
+	});
+}
+
+export async function removeTrackFromPlaylist(
+	playlistId: string,
+	trackId: string,
+): Promise<{ success: boolean }> {
+	return apiFetch(`/playlists/${playlistId}/tracks/${trackId}`, {
+		method: "DELETE",
+	});
+}
+
+// ── Actions ──────────────────────────────────────────────────────────────────
+
+export async function executeAction(
+	action: string,
+	type: string,
+	id: string,
+	userId: string,
+	target?: string,
+): Promise<any> {
+	return apiFetch(`/actions/${action}`, {
+		method: "POST",
+		body: JSON.stringify({ userId, type, id, target }),
+	});
+}
+
+// ── Context Menu ─────────────────────────────────────────────────────────────
+
+export async function getContextMenuState(
+	type: string,
+	id: string,
+	userId: string,
+): Promise<{ inLibrary: boolean; isPinned: boolean }> {
+	return apiFetch(`/context-menu/${type}/${id}?userId=${userId}`);
 }
 
 // ── Health ───────────────────────────────────────────────────────────────────

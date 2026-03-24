@@ -1,6 +1,4 @@
-import { eq } from "drizzle-orm";
-import { db, fromJson, toJson } from "../db/client.js";
-import { sessionQueues } from "../db/schema.js";
+import { getDb, fromJson, toJson } from "../db/helpers.js";
 import {
 	sessionCache,
 	type RecommendedTrack,
@@ -43,7 +41,6 @@ export async function updateQueue(opts: {
 	let data = sessionCache.get(sessionId) ?? (await loadQueue(sessionId));
 	if (!data) data = { tracks: [], playedIds: [] };
 
-	// Remove current track from queue
 	data.tracks = data.tracks.filter((t) => t.trackId !== currentTrackId);
 	data.playedIds = [...data.playedIds.slice(-199), currentTrackId];
 
@@ -51,7 +48,6 @@ export async function updateQueue(opts: {
 		scheduleProfileUpdate(userId);
 	}
 
-	// Refill if below watermark
 	if (data.tracks.length < LOW_WATER_MARK) {
 		const exclude = [...new Set(data.playedIds)];
 		const newTracks = await recommend({
@@ -81,45 +77,42 @@ export async function getQueue(sessionId: string): Promise<RecommendedTrack[]> {
 	return data?.tracks ?? [];
 }
 
-// ── SQLite persistence (recovery across restarts) ─────────────────────────────
+// ── SQLite persistence ────────────────────────────────────────────────────────
 async function persistQueue(
 	sessionId: string,
 	userId: string,
 	data: SessionQueueData,
 ) {
+	const db = getDb();
 	const nowUnix = Math.floor(Date.now() / 1000);
-	await db
-		.insert(sessionQueues)
-		.values({
-			sessionId,
-			userId,
-			queueJson: toJson(data.tracks),
-			playedIds: toJson(data.playedIds),
-			expiresAt: nowUnix + SESSION_TTL_MS / 1000,
-			updatedAt: nowUnix,
-		})
-		.onConflictDoUpdate({
-			target: sessionQueues.sessionId,
-			set: {
-				queueJson: toJson(data.tracks),
-				playedIds: toJson(data.playedIds),
-				expiresAt: nowUnix + SESSION_TTL_MS / 1000,
-				updatedAt: nowUnix,
-			},
-		});
+	db.prepare(
+		`INSERT INTO session_queues (session_id, user_id, queue_json, played_ids, expires_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET
+			queue_json = excluded.queue_json,
+			played_ids = excluded.played_ids,
+			expires_at = excluded.expires_at,
+			updated_at = excluded.updated_at`,
+	).run(
+		sessionId,
+		userId,
+		toJson(data.tracks),
+		toJson(data.playedIds),
+		nowUnix + SESSION_TTL_MS / 1000,
+		nowUnix,
+	);
 }
 
 async function loadQueue(sessionId: string): Promise<SessionQueueData | null> {
-	const [row] = await db
-		.select()
-		.from(sessionQueues)
-		.where(eq(sessionQueues.sessionId, sessionId))
-		.limit(1);
+	const db = getDb();
+	const row = db
+		.prepare("SELECT * FROM session_queues WHERE session_id = ? LIMIT 1")
+		.get(sessionId) as any;
 	if (!row) return null;
 	const nowUnix = Math.floor(Date.now() / 1000);
-	if (row.expiresAt < nowUnix) return null;
+	if (row.expires_at < nowUnix) return null;
 	return {
-		tracks: fromJson<RecommendedTrack[]>(row.queueJson, []),
-		playedIds: fromJson<string[]>(row.playedIds, []),
+		tracks: fromJson<RecommendedTrack[]>(row.queue_json, []),
+		playedIds: fromJson<string[]>(row.played_ids, []),
 	};
 }

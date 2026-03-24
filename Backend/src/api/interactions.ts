@@ -1,9 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { db } from "../db/client.js";
-import { users, userInteractions, tracks } from "../db/schema.js";
+import { resolveUser, getDb } from "../db/helpers.js";
 import { scheduleProfileUpdate } from "../workers/runner.js";
 
 const HIGH_SIGNAL = new Set([
@@ -33,7 +31,7 @@ const InteractionBody = z.object({
 	trackDurationSec: z.number().int().optional(),
 	sessionId: z.string().optional(),
 	context: z.record(z.unknown()).optional(),
-	occurredAt: z.number().int().optional(), // unix seconds
+	occurredAt: z.number().int().optional(),
 });
 
 export async function interactionsRoutes(app: FastifyInstance) {
@@ -43,27 +41,24 @@ export async function interactionsRoutes(app: FastifyInstance) {
 	}>("/users/:userId/interactions", async (req, reply) => {
 		const body = InteractionBody.parse(req.body);
 		const externalId = req.params.userId;
+		const db = getDb();
 
-		// Auto-create user on first interaction
-		let [user] = await db
-			.select()
-			.from(users)
-			.where(eq(users.externalId, externalId))
-			.limit(1);
+		// Resolve or auto-create user
+		let user = resolveUser(externalId);
 		if (!user) {
 			const id = randomUUID();
-			await db.insert(users).values({ id, externalId, isNew: true });
-			[user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+			db.prepare(
+				"INSERT INTO users (id, external_id, is_new) VALUES (?, ?, 1)",
+			).run(id, externalId);
+			user = resolveUser(externalId)!;
 		}
 
 		// Validate track if provided
 		if (body.trackId) {
-			const [t] = await db
-				.select({ id: tracks.id })
-				.from(tracks)
-				.where(eq(tracks.id, body.trackId))
-				.limit(1);
-			if (!t)
+			const track = db
+				.prepare("SELECT id FROM tracks WHERE id = ? LIMIT 1")
+				.get(body.trackId);
+			if (!track)
 				return reply
 					.status(404)
 					.send({ error: `Track ${body.trackId} not found` });
@@ -75,33 +70,38 @@ export async function interactionsRoutes(app: FastifyInstance) {
 				: null;
 
 		const nowUnix = Math.floor(Date.now() / 1000);
-		const result = await db
-			.insert(userInteractions)
-			.values({
-				userId: user.id,
-				trackId: body.trackId,
-				artistId: body.artistId,
-				albumId: body.albumId,
-				eventType: body.eventType,
-				playDurationSec: body.playDurationSec,
-				trackDurationSec: body.trackDurationSec,
+		const result = db
+			.prepare(
+				`INSERT INTO user_interactions 
+				(user_id, track_id, artist_id, album_id, event_type, play_duration_sec, track_duration_sec, completion_ratio, session_id, context, occurred_at) 
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.run(
+				user.id,
+				body.trackId || null,
+				body.artistId || null,
+				body.albumId || null,
+				body.eventType,
+				body.playDurationSec || null,
+				body.trackDurationSec || null,
 				completionRatio,
-				sessionId: body.sessionId,
-				context: body.context ? JSON.stringify(body.context) : null,
-				occurredAt: body.occurredAt ?? nowUnix,
-			})
-			.returning({ id: userInteractions.id });
+				body.sessionId || null,
+				body.context ? JSON.stringify(body.context) : null,
+				body.occurredAt ?? nowUnix,
+			);
 
-		if (user.isNew) {
-			await db.update(users).set({ isNew: false }).where(eq(users.id, user.id));
+		if (user.is_new) {
+			db.prepare("UPDATE users SET is_new = 0 WHERE id = ?").run(user.id);
 		}
 
 		if (HIGH_SIGNAL.has(body.eventType)) {
 			scheduleProfileUpdate(user.id);
 		}
 
-		return reply
-			.status(201)
-			.send({ id: result[0].id, userId: user.id, eventType: body.eventType });
+		return reply.status(201).send({
+			id: result.lastInsertRowid,
+			userId: user.id,
+			eventType: body.eventType,
+		});
 	});
 }

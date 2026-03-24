@@ -2,26 +2,20 @@
 
 import useSWR from "swr";
 import { useCallback, useMemo } from "react";
-
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+import {
+	API_BASE,
+	swrFetcher,
+	addTrackToPlaylist,
+	removeTrackFromPlaylist,
+} from "@/lib/api";
 
 export function usePlaylistManager() {
-	// This hook would ideally fetch ALL playlists and all tracks for them, or specifically tracks for an active playlist.
-	// For now, we will just use a generic fetch per playlist id in another component, or an aggregated endpoint.
-	// We'll mimic the legacy structure by tracking the state or re-fetching.
-
-	// SWR with dynamic array of playlist names is tricky here if we don't know the IDs.
-	// If a component needs a specific playlist, it should fetch `/playlists/:id/tracks`.
-
-	// Provide mostly stable interface but note it should be used within a specific Playlist context.
 	const { data, mutate } = useSWR<{
 		playlists: { id: string; title: string }[];
-	}>("http://localhost:8000/playlists", fetcher);
+	}>(`${API_BASE}/playlists`, swrFetcher);
 
 	const isInitialized = data !== undefined;
 
-	// In a complete rewrite, the playlist component should directly use `fetch /playlists/:id/tracks`
-	// Here we provide the legacy methods by doing lookups.
 	const toggleSongInPlaylist = useCallback(
 		async (playlistName: string, songKey: string) => {
 			if (!data) return;
@@ -30,32 +24,23 @@ export function usePlaylistManager() {
 			);
 			if (!p) return;
 
-			// Fetch current tracks to check if it's there
-			const res = await fetch(`http://localhost:8000/playlists/${p.id}/tracks`);
-			const tracksData = await res.json();
-			const isIn = RegExp(songKey).test(JSON.stringify(tracksData));
+			// Fetch current tracks to check presence
+			const res = await fetch(`${API_BASE}/playlists/${p.id}/tracks`);
+			const tracksData = (await res.json()) as {
+				tracks: { track_id: string }[];
+			};
+			const isIn = tracksData.tracks?.some((t) => t.track_id === songKey);
 
 			if (isIn) {
-				await fetch(
-					`http://localhost:8000/playlists/${p.id}/tracks/${songKey}`,
-					{ method: "DELETE" },
-				);
+				await removeTrackFromPlaylist(p.id, songKey);
 			} else {
-				await fetch(`http://localhost:8000/playlists/${p.id}/tracks`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ trackId: songKey }),
-				});
+				await addTrackToPlaylist(p.id, songKey);
 			}
 			mutate();
 		},
 		[data, mutate],
 	);
 
-	// Since we don't preload all tracks natively without an aggressive backend query,
-	// checking if a song is in playlist synchronously is impossible unless we fetch everything.
-	// Ideally the caller uses a hook specific to that playlist.
-	// We mock it for now since we moved to backend-synced storage.
 	const isSongInPlaylist = useCallback(
 		(
 			playlistName: string,
@@ -69,11 +54,12 @@ export function usePlaylistManager() {
 
 	return useMemo(
 		() => ({
-			playlistSongs: {}, // Deprecated synchronous map
+			data,
+			playlistSongs: {},
 			isInitialized,
 			toggleSongInPlaylist,
 			isSongInPlaylist,
 		}),
-		[isInitialized, toggleSongInPlaylist, isSongInPlaylist],
+		[data, isInitialized, toggleSongInPlaylist, isSongInPlaylist],
 	);
 }

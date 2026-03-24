@@ -1,16 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { eq, and } from "drizzle-orm";
-import { db } from "../db/client.js";
-import { users, userLibrary } from "../db/schema.js";
-
-async function resolveUser(externalId: string) {
-	const [user] = await db
-		.select()
-		.from(users)
-		.where(eq(users.externalId, externalId))
-		.limit(1);
-	return user ?? null;
-}
+import { resolveUser, getDb } from "../db/helpers.js";
 
 export async function contextMenuRoutes(app: FastifyInstance) {
 	app.get<{
@@ -22,28 +11,24 @@ export async function contextMenuRoutes(app: FastifyInstance) {
 
 		if (!externalId)
 			return reply.status(400).send({ error: "userId required" });
-		const user = await resolveUser(externalId);
+		const user = resolveUser(externalId);
 		if (!user) return reply.status(404).send({ error: "User not found" });
 
-		// Check statuses to dynamically change labels (Like -> Unlike, etc.)
-		const [inLibrary] = await db
-			.select()
-			.from(userLibrary)
-			.where(
-				and(
-					eq(userLibrary.userId, user.id),
-					eq(userLibrary.itemId, id),
-					eq(userLibrary.itemType, type === "video" ? "track" : (type as any)),
-				),
+		const itemType = type === "video" ? "track" : type;
+		const db = getDb();
+		const inLibrary = db
+			.prepare(
+				"SELECT id, is_pinned FROM user_library WHERE user_id = ? AND item_id = ? AND item_type = ? LIMIT 1",
 			)
-			.limit(1);
+			.get(user.id, id, itemType) as
+			| { id: number; is_pinned: number }
+			| undefined;
 
-		const isPinned = inLibrary?.isPinned ?? false;
 		return {
 			id,
 			type,
 			inLibrary: !!inLibrary,
-			isPinned,
+			isPinned: inLibrary ? !!inLibrary.is_pinned : false,
 		};
 	});
 }

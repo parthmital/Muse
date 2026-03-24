@@ -1,12 +1,12 @@
 import { FastifyInstance } from "fastify";
-import { eq, inArray } from "drizzle-orm";
-import { db, fromJson, toJson } from "../db/client.js";
-import { tracks, trackFeatures, artists, albums } from "../db/schema.js";
+import { getDb, toJson, fromJson } from "../db/helpers.js";
 import { hifiClient } from "../services/hifiClient.js";
 import { scheduleEnrichTrack } from "../workers/runner.js";
 import { invalidateTrack } from "../cache/index.js";
 
 export async function trackRoutes(app: FastifyInstance) {
+	const db = getDb();
+
 	// POST /tracks/ingest – fetch from hifi-api, persist, schedule enrichment
 	app.post<{ Body: { trackIds: string[] } }>(
 		"/tracks/ingest",
@@ -18,87 +18,79 @@ export async function trackRoutes(app: FastifyInstance) {
 
 			const apiTracks = await hifiClient.getTracks(trackIds);
 
-			// Find which IDs we don't already have
-			const existing = new Set(
-				(
-					await db
-						.select({ id: tracks.id })
-						.from(tracks)
-						.where(
-							inArray(
-								tracks.id,
-								apiTracks.map((t) => String(t.id)),
-							),
-						)
-				).map((r) => r.id),
+			const existingRows = db
+				.prepare(
+					`SELECT id FROM tracks WHERE id IN (${apiTracks.map(() => "?").join(",")})`,
+				)
+				.all(...apiTracks.map((t) => String(t.id))) as { id: string }[];
+			const existing = new Set(existingRows.map((r) => r.id));
+
+			const insertArtist = db.prepare(
+				"INSERT OR IGNORE INTO artists (id, name, popularity, picture_url, raw_api_data) VALUES (?, ?, ?, ?, ?)",
+			);
+			const insertAlbum = db.prepare(
+				"INSERT OR IGNORE INTO albums (id, title, cover_url, vibrant_color, raw_api_data) VALUES (?, ?, ?, ?, ?)",
+			);
+			const insertTrack = db.prepare(
+				`INSERT OR IGNORE INTO tracks 
+				(id, title, duration, bpm, key, key_scale, popularity, explicit, audio_quality, isrc, mix_ids, raw_api_data, artist_id, album_id) 
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			);
+			const insertFeatures = db.prepare(
+				"INSERT OR IGNORE INTO track_features (track_id, enrichment_status) VALUES (?, 'pending')",
 			);
 
-			let newCount = 0;
-			for (const t of apiTracks) {
-				const trackIdStr = String(t.id);
-				if (existing.has(trackIdStr)) continue;
+			const ingestBatch = db.transaction(() => {
+				let newCount = 0;
+				for (const t of apiTracks) {
+					const trackIdStr = String(t.id);
+					if (existing.has(trackIdStr)) continue;
 
-				// Upsert artist
-				if (t.artist?.id) {
-					await db
-						.insert(artists)
-						.values({
-							id: String(t.artist.id),
-							name: t.artist.name,
-							popularity: t.artist.popularity,
-							pictureUrl: t.artist.picture,
-							rawApiData: toJson(t.artist),
-						})
-						.onConflictDoNothing();
+					if (t.artist?.id) {
+						insertArtist.run(
+							String(t.artist.id),
+							t.artist.name,
+							t.artist.popularity ?? null,
+							t.artist.picture ?? null,
+							toJson(t.artist),
+						);
+					}
+
+					if (t.album?.id) {
+						insertAlbum.run(
+							String(t.album.id),
+							t.album.title,
+							t.album.cover ?? null,
+							t.album.vibrantColor ?? null,
+							toJson(t.album),
+						);
+					}
+
+					insertTrack.run(
+						trackIdStr,
+						t.title,
+						t.duration ?? null,
+						t.bpm ?? null,
+						t.key ?? null,
+						t.keyScale ?? null,
+						t.popularity ?? null,
+						t.explicit ? 1 : 0,
+						t.audioQuality ?? null,
+						t.isrc ?? null,
+						toJson(t.mixes),
+						toJson(t),
+						t.artist?.id ? String(t.artist.id) : null,
+						t.album?.id ? String(t.album.id) : null,
+					);
+
+					insertFeatures.run(trackIdStr);
+					scheduleEnrichTrack(trackIdStr);
+					newCount++;
 				}
+				return newCount;
+			});
 
-				// Upsert album
-				if (t.album?.id) {
-					await db
-						.insert(albums)
-						.values({
-							id: String(t.album.id),
-							title: t.album.title,
-							coverUrl: t.album.cover,
-							vibrantColor: t.album.vibrantColor,
-							rawApiData: toJson(t.album),
-						})
-						.onConflictDoNothing();
-				}
-
-				// Insert track
-				await db
-					.insert(tracks)
-					.values({
-						id: trackIdStr,
-						title: t.title,
-						duration: t.duration,
-						bpm: t.bpm,
-						key: t.key,
-						keyScale: t.keyScale,
-						popularity: t.popularity,
-						explicit: t.explicit ?? false,
-						audioQuality: t.audioQuality,
-						isrc: t.isrc,
-						mixIds: toJson(t.mixes),
-						rawApiData: toJson(t),
-						artistId: t.artist?.id ? String(t.artist.id) : null,
-						albumId: t.album?.id ? String(t.album.id) : null,
-					})
-					.onConflictDoNothing();
-
-				// Placeholder features row
-				await db
-					.insert(trackFeatures)
-					.values({
-						trackId: trackIdStr,
-						enrichmentStatus: "pending",
-					})
-					.onConflictDoNothing();
-
-				scheduleEnrichTrack(trackIdStr);
-				newCount++;
-			}
+			const newCount = ingestBatch();
 
 			return reply
 				.status(202)
@@ -111,27 +103,23 @@ export async function trackRoutes(app: FastifyInstance) {
 		"/tracks/:trackId",
 		async (req, reply) => {
 			const { trackId } = req.params;
-			const [track] = await db
-				.select()
-				.from(tracks)
-				.where(eq(tracks.id, trackId))
-				.limit(1);
+			const track = db
+				.prepare("SELECT * FROM tracks WHERE id = ? LIMIT 1")
+				.get(trackId) as any;
 			if (!track) return reply.status(404).send({ error: "Track not found" });
 
-			const [feat] = await db
-				.select()
-				.from(trackFeatures)
-				.where(eq(trackFeatures.trackId, trackId))
-				.limit(1);
+			const feat = db
+				.prepare("SELECT * FROM track_features WHERE track_id = ? LIMIT 1")
+				.get(trackId) as any;
 
 			return {
 				...track,
-				mixIds: fromJson(track.mixIds, null),
+				mix_ids: fromJson(track.mix_ids, null),
 				features: feat
 					? {
 							...feat,
-							moodTags: fromJson(feat.moodTags, []),
-							embedding: undefined, // never expose raw embedding
+							mood_tags: fromJson(feat.mood_tags, []),
+							embedding: undefined,
 						}
 					: null,
 			};
@@ -142,18 +130,14 @@ export async function trackRoutes(app: FastifyInstance) {
 	app.post<{ Params: { trackId: string } }>(
 		"/tracks/:trackId/enrich",
 		async (req, reply) => {
-			const [track] = await db
-				.select({ id: tracks.id })
-				.from(tracks)
-				.where(eq(tracks.id, req.params.trackId))
-				.limit(1);
+			const track = db
+				.prepare("SELECT id FROM tracks WHERE id = ? LIMIT 1")
+				.get(req.params.trackId) as { id: string } | undefined;
 			if (!track) return reply.status(404).send({ error: "Track not found" });
 
-			// Reset status so worker picks it up
-			await db
-				.update(trackFeatures)
-				.set({ enrichmentStatus: "pending", errorMessage: null })
-				.where(eq(trackFeatures.trackId, track.id));
+			db.prepare(
+				"UPDATE track_features SET enrichment_status = 'pending', error_message = NULL WHERE track_id = ?",
+			).run(track.id);
 
 			invalidateTrack(track.id);
 			scheduleEnrichTrack(track.id);

@@ -1,19 +1,12 @@
 import { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
-import { db } from "../db/client.js";
-import { users, userProfiles } from "../db/schema.js";
+import { resolveUser } from "../db/helpers.js";
 import { buildProfile, getProfile } from "../services/profileBuilder.js";
-import { fromJson } from "../db/client.js";
 
 export async function userRoutes(app: FastifyInstance) {
 	app.get<{ Params: { userId: string } }>(
 		"/users/:userId/profile",
 		async (req, reply) => {
-			const [user] = await db
-				.select()
-				.from(users)
-				.where(eq(users.externalId, req.params.userId))
-				.limit(1);
+			const user = resolveUser(req.params.userId);
 			if (!user) return reply.status(404).send({ error: "User not found" });
 
 			const profile = await getProfile(user.id);
@@ -35,11 +28,7 @@ export async function userRoutes(app: FastifyInstance) {
 	app.post<{ Params: { userId: string } }>(
 		"/users/:userId/profile/rebuild",
 		async (req, reply) => {
-			const [user] = await db
-				.select()
-				.from(users)
-				.where(eq(users.externalId, req.params.userId))
-				.limit(1);
+			const user = resolveUser(req.params.userId);
 			if (!user) return reply.status(404).send({ error: "User not found" });
 
 			const profile = await buildProfile(user.id);

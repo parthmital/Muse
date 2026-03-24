@@ -19,6 +19,8 @@ interface PlayerContextType {
 	duration: number;
 	volume: number;
 	audioQuality: string | null;
+	isShuffled: boolean;
+	repeatMode: "off" | "all" | "one";
 	playTrack: (track: Song) => void;
 	togglePlay: () => void;
 	seek: (time: number) => void;
@@ -26,6 +28,10 @@ interface PlayerContextType {
 	addToQueue: (track: Song) => void;
 	playNext: (track: Song) => void;
 	playPlaylist: (tracks: Song[], startIdx?: number) => void;
+	skipToNext: () => void;
+	skipToPrev: () => void;
+	toggleShuffle: () => void;
+	toggleRepeat: () => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -35,13 +41,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [progress, setProgress] = useState(0);
 	const [duration, setDuration] = useState(0);
-	const [volume, setVolume] = useState(0.7);
+	const [volume, setVolumeState] = useState(0.7);
 	const [audioQuality, setAudioQuality] = useState<string | null>(null);
 	const [queue, setQueue] = useState<Song[]>([]);
 	const [currentIndex, setCurrentIndex] = useState(-1);
+	const [isShuffled, setIsShuffled] = useState(false);
+	const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("off");
 
 	const queueRef = useRef<Song[]>([]);
 	const indexRef = useRef(-1);
+	const repeatRef = useRef<"off" | "all" | "one">("off");
+	const shuffleRef = useRef(false);
 
 	const audioRef = useRef<HTMLAudioElement | null>(null);
 	const dashPlayerRef = useRef<MediaPlayerClass | null>(null);
@@ -52,6 +62,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		setCurrentTrack(track);
 		setIsPlaying(true);
 		setProgress(0);
+		setAudioQuality(null);
 
 		try {
 			let streamUrl = track.streamUrl;
@@ -69,6 +80,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			const audio = audioRef.current;
 			const dashPlayer = dashPlayerRef.current;
 
+			// Reset dash player before loading new content
+			if (dashPlayer) {
+				try {
+					dashPlayer.reset();
+				} catch {
+					// Ignore if not initialized
+				}
+			}
+
 			if (
 				manifestMimeType === "application/dash+xml" &&
 				manifest &&
@@ -79,33 +99,102 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 				const blobUrl = URL.createObjectURL(blob);
 				dashPlayer.initialize(audio, blobUrl, true);
 			} else if (streamUrl) {
-				if (dashPlayer) {
-					try {
-						dashPlayer.reset();
-					} catch (e) {
-						// Ignore if not initialized
-					}
-				}
 				audio.src = streamUrl;
 				audio.play().catch(console.error);
 			} else {
-				// Dummy fallback
-				audio.src = "/music/Damocles.m4a";
-				audio.play().catch(console.error);
+				// No stream available — show error state instead of loading dummy file
+				console.warn("No stream URL available for track:", track.title);
+				setIsPlaying(false);
 			}
 		} catch (err) {
 			console.error("Failed to load stream:", err);
+			setIsPlaying(false);
 		}
 	}, []);
 
 	const skipToNext = useCallback(() => {
-		if (indexRef.current < queueRef.current.length - 1) {
-			const nextIdx = indexRef.current + 1;
+		const q = queueRef.current;
+		const idx = indexRef.current;
+
+		if (q.length === 0) return;
+
+		if (repeatRef.current === "one") {
+			playTrackInternal(q[idx]);
+			return;
+		}
+
+		if (idx < q.length - 1) {
+			const nextIdx = idx + 1;
 			indexRef.current = nextIdx;
 			setCurrentIndex(nextIdx);
-			playTrackInternal(queueRef.current[nextIdx]);
+			playTrackInternal(q[nextIdx]);
+		} else if (repeatRef.current === "all") {
+			indexRef.current = 0;
+			setCurrentIndex(0);
+			playTrackInternal(q[0]);
+		} else {
+			setIsPlaying(false);
+			setProgress(0);
 		}
 	}, [playTrackInternal]);
+
+	const skipToPrev = useCallback(() => {
+		const q = queueRef.current;
+		const idx = indexRef.current;
+		const audio = audioRef.current;
+
+		// If more than 3 seconds in, restart current track
+		if (audio && audio.currentTime > 3) {
+			audio.currentTime = 0;
+			setProgress(0);
+			return;
+		}
+
+		if (idx > 0) {
+			const prevIdx = idx - 1;
+			indexRef.current = prevIdx;
+			setCurrentIndex(prevIdx);
+			playTrackInternal(q[prevIdx]);
+		} else if (repeatRef.current === "all" && q.length > 0) {
+			const lastIdx = q.length - 1;
+			indexRef.current = lastIdx;
+			setCurrentIndex(lastIdx);
+			playTrackInternal(q[lastIdx]);
+		}
+	}, [playTrackInternal]);
+
+	const toggleShuffle = useCallback(() => {
+		setIsShuffled((prev) => {
+			const next = !prev;
+			shuffleRef.current = next;
+
+			if (next && queueRef.current.length > 1) {
+				// Shuffle queue but keep current track in place
+				const current = queueRef.current[indexRef.current];
+				const rest = queueRef.current.filter((_, i) => i !== indexRef.current);
+				for (let i = rest.length - 1; i > 0; i--) {
+					const j = Math.floor(Math.random() * (i + 1));
+					[rest[i], rest[j]] = [rest[j], rest[i]];
+				}
+				const newQueue = [current, ...rest];
+				queueRef.current = newQueue;
+				indexRef.current = 0;
+				setQueue(newQueue);
+				setCurrentIndex(0);
+			}
+
+			return next;
+		});
+	}, []);
+
+	const toggleRepeat = useCallback(() => {
+		setRepeatMode((prev) => {
+			const modes: ("off" | "all" | "one")[] = ["off", "all", "one"];
+			const next = modes[(modes.indexOf(prev) + 1) % modes.length];
+			repeatRef.current = next;
+			return next;
+		});
+	}, []);
 
 	useEffect(() => {
 		audioRef.current = new Audio();
@@ -113,14 +202,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
 		const handleTimeUpdate = () => setProgress(audio.currentTime);
 		const handleLoadedMetadata = () => setDuration(audio.duration);
-		const handleEnded = () => {
-			if (indexRef.current < queueRef.current.length - 1) {
-				skipToNext();
-			} else {
-				setIsPlaying(false);
-				setProgress(0);
-			}
-		};
+		const handleEnded = () => skipToNext();
 
 		audio.addEventListener("timeupdate", handleTimeUpdate);
 		audio.addEventListener("loadedmetadata", handleLoadedMetadata);
@@ -177,7 +259,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		});
 	}, []);
 
-	const playNext = useCallback((track: Song) => {
+	const playNextFn = useCallback((track: Song) => {
 		setQueue((prev) => {
 			const next = [...prev];
 			next.splice(indexRef.current + 1, 0, track);
@@ -202,6 +284,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		setProgress(time);
 	}, []);
 
+	const setVolume = useCallback((vol: number) => {
+		setVolumeState(vol);
+	}, []);
+
 	const value = {
 		currentTrack,
 		isPlaying,
@@ -209,13 +295,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		duration,
 		volume,
 		audioQuality,
+		isShuffled,
+		repeatMode,
 		playTrack,
 		togglePlay,
 		seek,
 		setVolume,
 		addToQueue,
-		playNext,
+		playNext: playNextFn,
 		playPlaylist,
+		skipToNext,
+		skipToPrev,
+		toggleShuffle,
+		toggleRepeat,
 	};
 
 	return (

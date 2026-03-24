@@ -1,9 +1,9 @@
 import { FastifyPluginAsync } from "fastify";
 import z from "zod";
-import { db } from "../db/client.js";
-import { userLibrary, playlists, playlistTracks } from "../db/schema.js";
-import { and, eq } from "drizzle-orm";
+import { getDb } from "../db/helpers.js";
 import crypto from "crypto";
+
+const DEV_USER_ID = "dev-user-001";
 
 const LibraryItemSchema = z.object({
 	itemType: z.enum([
@@ -27,99 +27,70 @@ const AddToPlaylistSchema = z.object({
 });
 
 export const libraryRoutes: FastifyPluginAsync = async (app) => {
-	// Add user's context assuming a single default user or passing it in
-	// As there is no authentication, we'll use a hardcoded dev user
-	const DEV_USER_ID = "dev-user-001";
+	const db = getDb();
 
 	// ── Library Endpoints ──────────────────────────────────────────────────
-	app.get("/library", async (request, reply) => {
-		const libraryItems = await db
-			.select()
-			.from(userLibrary)
-			.where(eq(userLibrary.userId, DEV_USER_ID));
-		return { library: libraryItems };
+	app.get("/library", async () => {
+		const items = db
+			.prepare("SELECT * FROM user_library WHERE user_id = ?")
+			.all(DEV_USER_ID);
+		return { library: items };
 	});
 
-	app.post("/library", async (request, reply) => {
+	app.post("/library", async (request) => {
 		const { itemType, itemId } = LibraryItemSchema.parse(request.body);
 
-		// UPSERT strategy: check if exists, if not insert
-		const existing = await db
-			.select()
-			.from(userLibrary)
-			.where(
-				and(
-					eq(userLibrary.userId, DEV_USER_ID),
-					eq(userLibrary.itemType, itemType),
-					eq(userLibrary.itemId, itemId),
-				),
-			)
-			.limit(1);
-
-		if (existing.length === 0) {
-			await db.insert(userLibrary).values({
-				userId: DEV_USER_ID,
-				itemType,
-				itemId,
-			});
-		}
+		db.prepare(
+			"INSERT OR IGNORE INTO user_library (user_id, item_type, item_id) VALUES (?, ?, ?)",
+		).run(DEV_USER_ID, itemType, itemId);
 
 		return { success: true };
 	});
 
-	app.delete("/library", async (request, reply) => {
+	app.delete("/library", async (request) => {
 		const { itemType, itemId } = LibraryItemSchema.parse(request.body);
-		await db
-			.delete(userLibrary)
-			.where(
-				and(
-					eq(userLibrary.userId, DEV_USER_ID),
-					eq(userLibrary.itemType, itemType),
-					eq(userLibrary.itemId, itemId),
-				),
-			);
+		db.prepare(
+			"DELETE FROM user_library WHERE user_id = ? AND item_type = ? AND item_id = ?",
+		).run(DEV_USER_ID, itemType, itemId);
 		return { success: true };
 	});
 
 	// ── Playlists Endpoints ────────────────────────────────────────────────
-	app.get("/playlists", async (request, reply) => {
-		const userPlaylists = await db
-			.select()
-			.from(playlists)
-			.where(eq(playlists.userId, DEV_USER_ID));
-		return { playlists: userPlaylists };
+	app.get("/playlists", async () => {
+		const playlists = db
+			.prepare("SELECT * FROM playlists WHERE user_id = ?")
+			.all(DEV_USER_ID);
+		return { playlists };
 	});
 
-	app.post("/playlists", async (request, reply) => {
+	app.post("/playlists", async (request) => {
 		const { title, description } = CreatePlaylistSchema.parse(request.body);
 		const newId = crypto.randomUUID();
 
-		await db.insert(playlists).values({
-			id: newId,
-			userId: DEV_USER_ID,
-			title,
-			description,
-		});
+		db.prepare(
+			"INSERT INTO playlists (id, user_id, title, description) VALUES (?, ?, ?, ?)",
+		).run(newId, DEV_USER_ID, title, description || null);
 
 		return { id: newId, success: true };
 	});
 
 	app.delete("/playlists/:id", async (request, reply) => {
 		const { id } = request.params as { id: string };
-		await db
-			.delete(playlists)
-			.where(and(eq(playlists.id, id), eq(playlists.userId, DEV_USER_ID)));
+		db.prepare("DELETE FROM playlists WHERE id = ? AND user_id = ?").run(
+			id,
+			DEV_USER_ID,
+		);
 		return { success: true };
 	});
 
 	// ── Playlist Tracks Endpoints ──────────────────────────────────────────
-	app.get("/playlists/:id/tracks", async (request, reply) => {
+	app.get("/playlists/:id/tracks", async (request) => {
 		const { id } = request.params as { id: string };
-		const tracks = await db
-			.select()
-			.from(playlistTracks)
-			.where(eq(playlistTracks.playlistId, id))
-			.orderBy(playlistTracks.position);
+		const tracks = db
+			.prepare(
+				"SELECT * FROM playlist_tracks WHERE playlist_id = ? ORDER BY position",
+			)
+			.all(id);
 		return { tracks };
 	});
 
@@ -127,57 +98,41 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 		const { id } = request.params as { id: string };
 		const { trackId } = AddToPlaylistSchema.parse(request.body);
 
-		// check if playlist exists and belongs to user
-		const playlist = await db
-			.select()
-			.from(playlists)
-			.where(and(eq(playlists.id, id), eq(playlists.userId, DEV_USER_ID)))
-			.limit(1);
-		if (playlist.length === 0)
+		const playlist = db
+			.prepare("SELECT id FROM playlists WHERE id = ? AND user_id = ? LIMIT 1")
+			.get(id, DEV_USER_ID);
+		if (!playlist)
 			return reply
 				.status(404)
 				.send({ error: "Playlist not found or unauthorized" });
 
-		// find max position
-		const existingTracks = await db
-			.select()
-			.from(playlistTracks)
-			.where(eq(playlistTracks.playlistId, id));
-		const maxPos = existingTracks.reduce(
-			(max, t) => Math.max(max, t.position),
-			0,
-		);
+		const maxRow = db
+			.prepare(
+				"SELECT MAX(position) as max_pos FROM playlist_tracks WHERE playlist_id = ?",
+			)
+			.get(id) as { max_pos: number | null } | undefined;
+		const maxPos = maxRow?.max_pos ?? 0;
 
-		await db.insert(playlistTracks).values({
-			playlistId: id,
-			trackId,
-			position: maxPos + 1,
-		});
+		db.prepare(
+			"INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?, ?, ?)",
+		).run(id, trackId, maxPos + 1);
 		return { success: true };
 	});
 
 	app.delete("/playlists/:id/tracks/:trackId", async (request, reply) => {
 		const { id, trackId } = request.params as { id: string; trackId: string };
 
-		// check if playlist exists and belongs to user
-		const playlist = await db
-			.select()
-			.from(playlists)
-			.where(and(eq(playlists.id, id), eq(playlists.userId, DEV_USER_ID)))
-			.limit(1);
-		if (playlist.length === 0)
+		const playlist = db
+			.prepare("SELECT id FROM playlists WHERE id = ? AND user_id = ? LIMIT 1")
+			.get(id, DEV_USER_ID);
+		if (!playlist)
 			return reply
 				.status(404)
 				.send({ error: "Playlist not found or unauthorized" });
 
-		await db
-			.delete(playlistTracks)
-			.where(
-				and(
-					eq(playlistTracks.playlistId, id),
-					eq(playlistTracks.trackId, trackId),
-				),
-			);
+		db.prepare(
+			"DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_id = ?",
+		).run(id, trackId);
 		return { success: true };
 	});
 };

@@ -1,6 +1,10 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import {
+	getContextMenuState,
+	executeAction as apiExecuteAction,
+} from "@/lib/api";
 
 export interface ContextMenuItem {
 	label: string;
@@ -23,12 +27,7 @@ export function useContextMenu() {
 		async (type: string, id: string, userId: string) => {
 			setLoading(true);
 			try {
-				const API_BASE =
-					process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-				const res = await fetch(
-					`${API_BASE}/context-menu/${type}/${id}?userId=${userId}`,
-				);
-				const data = await res.json();
+				const data = await getContextMenuState(type, id, userId);
 				setState(data);
 			} catch (err) {
 				console.error("Failed to fetch context menu state:", err);
@@ -40,88 +39,97 @@ export function useContextMenu() {
 		[],
 	);
 
-	const getMenuItems = (type: string, data: ContextMenuState | null) => {
-		if (!data) return [];
-		const { inLibrary, isPinned } = data;
+	const getMenuItems = useCallback(
+		(type: string, data: ContextMenuState | null) => {
+			if (!data) return [];
+			const { inLibrary, isPinned } = data;
 
-		const menu: ContextMenuItem[] = [];
+			const menu: ContextMenuItem[] = [];
 
-		// Playback Actions
-		if (["track", "album", "playlist", "mix", "user_playlist"].includes(type)) {
+			// Playback Actions
+			if (
+				["track", "album", "playlist", "mix", "user_playlist"].includes(type)
+			) {
+				menu.push({
+					label: "Shuffle play",
+					action: "shuffle_play",
+					icon: "Shuffle",
+				});
+			}
+			if (type === "track" || type === "video" || type === "album") {
+				menu.push({ label: "Start mix", action: "mix", icon: "Discover" });
+			}
+			menu.push({ label: "Play next", action: "play_next", icon: "Next" });
 			menu.push({
-				label: "Shuffle play",
-				action: "shuffle_play",
-				icon: "Shuffle",
+				label: "Add to queue",
+				action: "add_to_queue",
+				icon: "Add",
 			});
-		}
-		if (type === "track" || type === "video" || type === "album") {
-			menu.push({ label: "Start mix", action: "mix", icon: "Discover" });
-		}
-		menu.push({ label: "Play next", action: "play_next", icon: "Next" });
-		menu.push({
-			label: "Add to queue",
-			action: "add_to_queue",
-			icon: "Add",
-		});
 
-		// Library Actions
-		if (["track", "video", "artist", "mix"].includes(type)) {
-			menu.push({
-				label: inLibrary ? "Unlike" : "Like",
-				action: "toggle_like",
-				icon: "Like",
-				active: inLibrary,
-			});
-		} else {
-			menu.push({
-				label: inLibrary ? "Remove from library" : "Save to library",
-				action: "toggle_library",
-				icon: inLibrary ? "Check" : "Add",
-				active: inLibrary,
-			});
-		}
+			// Library Actions
+			if (["track", "video", "artist", "mix"].includes(type)) {
+				menu.push({
+					label: inLibrary ? "Unlike" : "Like",
+					action: "toggle_like",
+					icon: "Like",
+					active: inLibrary,
+				});
+			} else {
+				menu.push({
+					label: inLibrary ? "Remove from library" : "Save to library",
+					action: "toggle_library",
+					icon: inLibrary ? "Check" : "Add",
+					active: inLibrary,
+				});
+			}
 
-		if (["album", "artist", "playlist", "user_playlist"].includes(type)) {
-			menu.push({
-				label: isPinned ? "Unpin" : "Pin",
-				action: "toggle_pin",
-				icon: "Pin",
-				active: isPinned,
-			});
-		}
+			if (["album", "artist", "playlist", "user_playlist"].includes(type)) {
+				menu.push({
+					label: isPinned ? "Unpin" : "Pin",
+					action: "toggle_pin",
+					icon: "Pin",
+					active: isPinned,
+				});
+			}
 
-		if (type === "track" || type === "video") {
-			menu.push({
-				label: "Add to playlist",
-				action: "add_to_playlist",
-				icon: "Add to Playlist",
-			});
-		}
+			if (type === "track" || type === "video") {
+				menu.push({
+					label: "Add to playlist",
+					action: "add_to_playlist",
+					icon: "Add to Playlist",
+				});
+			}
 
-		// Navigation Actions
-		if (["track", "video", "album"].includes(type)) {
-			menu.push({
-				label: "Go to artist",
-				action: "navigate",
-				target: "artist",
-				icon: "Artist",
-			});
-		}
-		if (["track", "video"].includes(type)) {
-			menu.push({
-				label: "Go to album",
-				action: "navigate",
-				target: "album",
-				icon: "Album",
-			});
-		}
+			// Navigation Actions
+			if (["track", "video", "album"].includes(type)) {
+				menu.push({
+					label: "Go to artist",
+					action: "navigate",
+					target: "artist",
+					icon: "Artist",
+				});
+			}
+			if (["track", "video"].includes(type)) {
+				menu.push({
+					label: "Go to album",
+					action: "navigate",
+					target: "album",
+					icon: "Album",
+				});
+			}
 
-		// System Actions
-		if (type === "track" || type === "video") {
-			menu.push({ label: "Track info", action: "track_info", icon: "Info" });
-		}
-		return menu;
-	};
+			// System Actions
+			if (type === "track" || type === "video") {
+				menu.push({
+					label: "Track info",
+					action: "track_info",
+					icon: "Info",
+				});
+			}
+			return menu;
+		},
+		[],
+	);
 
 	const executeAction = useCallback(
 		async (
@@ -132,15 +140,7 @@ export function useContextMenu() {
 			target?: string,
 		) => {
 			try {
-				const API_BASE =
-					process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-				const res = await fetch(`${API_BASE}/actions/${action}`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ userId, type, id, target }),
-				});
-				const data = await res.json();
-				return data;
+				return await apiExecuteAction(action, type, id, userId, target);
 			} catch (err) {
 				console.error(`Failed to execute action ${action}:`, err);
 				return { success: false };

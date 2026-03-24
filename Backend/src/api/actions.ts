@@ -1,21 +1,10 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
-import { db } from "../db/client.js";
-import { users, userLibrary, playlists, playlistTracks } from "../db/schema.js";
-
-async function resolveUser(externalId: string) {
-	const [user] = await db
-		.select()
-		.from(users)
-		.where(eq(users.externalId, externalId))
-		.limit(1);
-	return user ?? null;
-}
+import { resolveUser, getDb } from "../db/helpers.js";
 
 const ActionBody = z.object({
 	userId: z.string(),
-	type: z.string(), // track, album, artist, playlist, etc.
+	type: z.string(),
 	id: z.string(),
 });
 
@@ -25,72 +14,57 @@ export async function actionRoutes(app: FastifyInstance) {
 		Body: z.infer<typeof ActionBody>;
 	}>("/actions/:action", async (req, reply) => {
 		const { action } = req.params;
-		console.log(`[Action] ${action}`, req.body);
 		const { userId: externalId, type, id } = ActionBody.parse(req.body);
 
-		const user = await resolveUser(externalId);
+		const user = resolveUser(externalId);
 		if (!user) return reply.status(404).send({ error: "User not found" });
+
+		const db = getDb();
 
 		switch (action) {
 			case "toggle_like":
 			case "toggle_library": {
-				const [existing] = await db
-					.select()
-					.from(userLibrary)
-					.where(
-						and(
-							eq(userLibrary.userId, user.id),
-							eq(userLibrary.itemId, id),
-							eq(userLibrary.itemType, type as any),
-						),
+				const existing = db
+					.prepare(
+						"SELECT id FROM user_library WHERE user_id = ? AND item_id = ? AND item_type = ? LIMIT 1",
 					)
-					.limit(1);
+					.get(user.id, id, type) as { id: number } | undefined;
 
 				if (existing) {
-					await db.delete(userLibrary).where(eq(userLibrary.id, existing.id));
+					db.prepare("DELETE FROM user_library WHERE id = ?").run(existing.id);
 					return { success: true, active: false };
 				} else {
-					await db.insert(userLibrary).values({
-						userId: user.id,
-						itemId: id,
-						itemType: type as any,
-					});
+					db.prepare(
+						"INSERT INTO user_library (user_id, item_id, item_type) VALUES (?, ?, ?)",
+					).run(user.id, id, type);
 					return { success: true, active: true };
 				}
 			}
 
 			case "toggle_pin": {
-				const [existing] = await db
-					.select()
-					.from(userLibrary)
-					.where(
-						and(
-							eq(userLibrary.userId, user.id),
-							eq(userLibrary.itemId, id),
-							eq(userLibrary.itemType, type as any),
-						),
+				const existing = db
+					.prepare(
+						"SELECT id, is_pinned FROM user_library WHERE user_id = ? AND item_id = ? AND item_type = ? LIMIT 1",
 					)
-					.limit(1);
+					.get(user.id, id, type) as
+					| { id: number; is_pinned: number }
+					| undefined;
 
 				if (existing) {
-					await db
-						.update(userLibrary)
-						.set({ isPinned: !existing.isPinned })
-						.where(eq(userLibrary.id, existing.id));
-					return { success: true, active: !existing.isPinned };
+					const newPinned = existing.is_pinned ? 0 : 1;
+					db.prepare("UPDATE user_library SET is_pinned = ? WHERE id = ?").run(
+						newPinned,
+						existing.id,
+					);
+					return { success: true, active: !!newPinned };
 				} else {
-					// Auto-add to library and pin
-					await db.insert(userLibrary).values({
-						userId: user.id,
-						itemId: id,
-						itemType: type as any,
-						isPinned: true,
-					});
+					db.prepare(
+						"INSERT INTO user_library (user_id, item_id, item_type, is_pinned) VALUES (?, ?, ?, 1)",
+					).run(user.id, id, type);
 					return { success: true, active: true };
 				}
 			}
 
-			// Playback actions (handled by frontend, but signaled by backend)
 			case "shuffle_play":
 			case "radio":
 			case "mix":
