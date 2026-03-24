@@ -7,8 +7,6 @@
 		"worker": "tsx watch src/workers/runner.ts",
 		"start": "node dist/index.js",
 		"build": "tsc",
-		"migrate": "drizzle-kit push",
-		"studio": "drizzle-kit studio",
 		"seed": "tsx scripts/seedCatalog.ts",
 		"build-index": "tsx scripts/buildIndex.ts"
 	},
@@ -32,7 +30,6 @@
 		"zod": "^3.23.8"
 	},
 	"devDependencies": {
-		"@types/better-sqlite3": "^7.6.10",
 		"@types/node": "^20.14.2",
 		"@types/node-schedule": "^2.1.7",
 		"tsx": "^4.15.7",

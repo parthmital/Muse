@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { FilterBar } from "@/components/FilterBar";
 import { Song, SongRow } from "@/components/SongRow";
 import { SongListHeader } from "@/components/SongListHeader";
-import { useSongActions } from "@/hooks/useSongActions";
+import { useSongActions } from "@/hooks/useContextMenu";
 import { useSorting } from "@/hooks/useSorting";
 import { durationToSeconds } from "@/utils/duration";
 import { API_BASE, swrFetcher } from "@/lib/api";

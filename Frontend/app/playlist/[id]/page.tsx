@@ -8,7 +8,7 @@ import { IconButton } from "@/components/ui/IconButton";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { ActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 
-import { useSongActions } from "@/hooks/useSongActions";
+import { useSongActions } from "@/hooks/useContextMenu";
 import { useSorting } from "@/hooks/useSorting";
 import { usePlayer } from "@/context/PlayerContext";
 import { formatTotalDuration } from "@/utils/duration";

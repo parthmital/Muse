@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { IconButton } from "@/components/ui/IconButton";
 import { TrackInfo } from "@/components/TrackInfo";
 import { ActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
-import { useSongActions } from "@/hooks/useSongActions";
+import { useSongActions } from "@/hooks/useContextMenu";
 import { usePlaylistManager } from "@/hooks/usePlaylistManager";
 import { usePlayer } from "@/context/PlayerContext";
 import { DynamicActionMenu } from "@/components/DynamicActionMenu";
