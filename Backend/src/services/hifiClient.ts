@@ -262,15 +262,25 @@ class HifiClient {
 		type: "square" | "video" = "square",
 	): string | null {
 		if (!pictureId) return null;
+
+		// Extract slug from absolute Tidal URLs if passed by mistake
+		let slug = pictureId;
 		if (
 			typeof pictureId === "string" &&
-			(pictureId.startsWith("http") ||
-				pictureId.startsWith("blob:") ||
-				pictureId.startsWith("assets/"))
+			pictureId.includes("tidal.com/images/")
 		) {
-			return pictureId;
+			const parts = pictureId.split("tidal.com/images/")[1];
+			slug = parts.split("/")[0];
 		}
-		const id = pictureId.replace(/\//g, "-");
+
+		if (
+			typeof slug === "string" &&
+			(slug.startsWith("blob:") || slug.startsWith("assets/"))
+		) {
+			return slug;
+		}
+
+		const id = String(slug).replace(/\//g, "-");
 		return `${config.apiBaseUrl}/tidal/images/${id}?size=${size}&type=${type}`;
 	}
 

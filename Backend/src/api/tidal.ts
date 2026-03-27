@@ -22,6 +22,7 @@ import {
 } from "../cache/tidalCache.js";
 import axios from "axios";
 import { Jimp } from "jimp";
+import Vibrant from "node-vibrant";
 
 // ── Quality Chain ────────────────────────────────────────────────────────────
 
@@ -287,56 +288,9 @@ function adjustColor(hex: string, mode: "brighten" | "darken"): string {
 
 async function extractVibrantColor(buffer: Buffer): Promise<string | null> {
 	try {
-		const image = await Jimp.read(buffer);
-		const maxDim = 64;
-		let w = image.bitmap.width;
-		let h = image.bitmap.height;
-		if (w > maxDim || h > maxDim) {
-			const scale = Math.min(maxDim / w, maxDim / h);
-			w = Math.floor(w * scale);
-			h = Math.floor(h * scale);
-			// @ts-ignore
-			image.resize({ width: w, height: h });
-		}
-
-		const pixels = image.bitmap.data;
-		const candidates: { h: number; s: number; l: number }[] = [];
-
-		for (let i = 0; i < pixels.length; i += 4) {
-			const r = pixels[i],
-				g = pixels[i + 1],
-				b = pixels[i + 2],
-				a = pixels[i + 3];
-			if (a < 125) continue;
-			const [hVal, sVal, lVal] = rgbToHsl(r, g, b);
-			if (sVal >= 0.3 && lVal >= 0.3 && lVal <= 0.8) {
-				candidates.push({ h: hVal, s: sVal, l: lVal });
-			}
-		}
-
-		if (!candidates.length) {
-			// Relaxed criteria
-			for (let i = 0; i < pixels.length; i += 4) {
-				const a = pixels[i + 3];
-				if (a < 10) continue;
-				const [hVal, sVal, lVal] = rgbToHsl(
-					pixels[i],
-					pixels[i + 1],
-					pixels[i + 2],
-				);
-				candidates.push({ h: hVal, s: sVal, l: lVal });
-			}
-		}
-
-		if (!candidates.length) return null;
-
-		candidates.sort(
-			(c1, c2) =>
-				c2.s - c1.s ||
-				0.5 - Math.abs(c1.l - 0.5) - (0.5 - Math.abs(c2.l - 0.5)),
-		);
-
-		return hslToHex(candidates[0].h, candidates[0].s, candidates[0].l);
+		const palette = await Vibrant.from(buffer).getPalette();
+		const vibrant = palette.Vibrant || palette.Muted || palette.LightVibrant;
+		return vibrant ? vibrant.getHex() : null;
 	} catch {
 		return null;
 	}

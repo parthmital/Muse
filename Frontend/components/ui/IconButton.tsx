@@ -109,14 +109,22 @@ export function IconButton({
 		);
 	}
 
+	if (onClick) {
+		return (
+			<button
+				onClick={onClick}
+				disabled={disabled}
+				className={classes}
+				title={alt}
+			>
+				{content}
+			</button>
+		);
+	}
+
 	return (
-		<button
-			onClick={onClick}
-			disabled={disabled}
-			className={classes}
-			title={alt}
-		>
+		<div className={classes} title={alt}>
 			{content}
-		</button>
+		</div>
 	);
 }

@@ -229,7 +229,7 @@ export function ActionMenu({
 									showCheckmarks && item.checked !== undefined ? "" : "pr-3"
 								} group cursor-pointer rounded-md text-left text-sm whitespace-nowrap transition-colors hover:bg-neutral-800`}
 							>
-								{item.icon && (
+								{item.icon && item.icon !== "undefined" && (
 									<Image
 										src={`/icons/Name=${item.icon}, Filled=${
 											item.checked ? "Yes" : "No"

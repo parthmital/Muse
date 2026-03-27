@@ -90,7 +90,7 @@ export default function ArtistPage({
 		<div className="flex flex-col">
 			<ArtistBanner
 				id={id}
-				title={title}
+				title={artistData?.artist?.name || title}
 				listenerCount="20,795,080"
 				onPlay={handlePlayArtist}
 				artistSongs={artistSongs}

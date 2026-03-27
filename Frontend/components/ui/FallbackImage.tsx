@@ -47,7 +47,7 @@ export function FallbackImage({
 						src={fallbackSrc}
 						alt={alt || fallbackType}
 						fill
-						className="object-contain opacity-20 brightness-0 invert"
+						className="object-contain opacity-40 brightness-0 invert"
 					/>
 				</div>
 			</div>

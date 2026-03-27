@@ -6,7 +6,7 @@ import { FallbackImage } from "./ui/FallbackImage";
 import { useColorExtraction } from "@/hooks/useColorExtraction";
 import { DynamicActionMenu } from "./DynamicActionMenu";
 
-export type MediaType = "mix" | "artist" | "album" | "playlist";
+export type MediaType = "mix" | "artist" | "album" | "playlist" | "track";
 
 export interface MediaItem {
 	type?: MediaType;
@@ -30,18 +30,25 @@ export function MediaCard({ item }: MediaCardProps) {
 		item.tidalId !== undefined
 			? String(item.tidalId)
 			: encodeURIComponent(item.title);
+
+	// Track results in cards often point to their album or a player action.
+	// We'll point them to a fallback or handle in item data.
 	const href =
 		inferredType === "artist"
 			? `/artist/${routeId}`
-			: inferredType === "album"
+			: inferredType === "album" || inferredType === "track"
 				? `/album/${routeId}`
 				: `/playlist/${routeId}`;
 
-	const fallbackMap: Record<MediaType, "Playlist" | "Album" | "Artist"> = {
+	const fallbackMap: Record<
+		MediaType,
+		"Playlist" | "Album" | "Artist" | "Notes"
+	> = {
 		playlist: "Playlist",
 		mix: "Playlist",
 		album: "Album",
 		artist: "Artist",
+		track: "Notes",
 	};
 
 	const src = item.imageUrl || "";
@@ -101,14 +108,30 @@ export function MediaCard({ item }: MediaCardProps) {
 								</>
 							)}
 						</div>
-						{item.pinned && (
-							<IconButton
-								icon="Pin"
-								alt="Pinned"
-								filled
-								className="absolute top-1 right-1 z-10 rounded-full bg-black"
-							/>
-						)}
+						<div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
+							{item.pinned && (
+								<IconButton
+									icon="Pin"
+									alt="Pinned"
+									filled
+									className="rounded-full bg-black/60 backdrop-blur-md"
+								/>
+							)}
+							<div className="opacity-0 group-hover:opacity-100 transition-opacity">
+								<DynamicActionMenu
+									type={inferredType}
+									id={routeId}
+									openOnClick={true}
+									trigger={
+										<IconButton
+											icon="More"
+											alt="More"
+											className="rounded-full bg-black/60 backdrop-blur-md"
+										/>
+									}
+								/>
+							</div>
+						</div>
 					</div>
 				</Link>
 			}
