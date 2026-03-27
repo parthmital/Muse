@@ -70,7 +70,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			let manifest = "";
 
 			if (!streamUrl && track.tidalId) {
-				const info = await getStreamInfo(track.tidalId, "LOSSLESS");
+				const info = await getStreamInfo(track.tidalId);
 				streamUrl = info.streamUrl ?? "";
 				manifestMimeType = info.manifestMimeType;
 				manifest = info.manifest;

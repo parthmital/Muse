@@ -152,7 +152,7 @@ export function useTidalRecommendations(trackId: number | null) {
 
 // ── Stream URL ───────────────────────────────────────────────────────────────
 
-export function useTidalStream(trackId: number | null, quality = "LOSSLESS") {
+export function useTidalStream(trackId: number | null, quality?: string) {
 	const [stream, setStream] = useState<StreamInfo | null>(null);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);

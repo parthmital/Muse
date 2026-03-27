@@ -97,8 +97,7 @@ export function Player() {
 					onClick={toggleRepeat}
 					filled={repeatMode !== "off"}
 				/>
-
-				<div className="flex grow items-center gap-4">
+				<div className="flex flex-1 items-center gap-4 min-w-0">
 					<p className="min-w-8 text-right text-xs text-neutral-400">
 						{formatPlaybackTime(displayProgress)}
 					</p>
@@ -122,19 +121,13 @@ export function Player() {
 				</div>
 
 				<IconButton icon="Volume" alt="Volume" />
-
-				<div className="flex grow items-center gap-3">
+				<div className="flex flex-1 items-center gap-3 min-w-0 overflow-hidden">
 					<TrackInfo
-						className="min-w-0"
+						className="min-w-0 w-full"
 						image={currentTrack?.img || ""}
 						title={currentTrack?.title || "No track selected"}
 						artist={currentTrack?.artist || "Select a song to play"}
 					/>
-					{audioQuality && (
-						<span className="shrink-0 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-neutral-500 uppercase">
-							{audioQuality}
-						</span>
-					)}
 				</div>
 			</div>
 

@@ -273,11 +273,12 @@ export async function getTrackInfo(trackId: number): Promise<TidalTrack> {
 
 export async function getStreamInfo(
 	trackId: number,
-	quality = "LOSSLESS",
+	quality?: string,
 ): Promise<StreamInfo> {
-	return apiFetch(
-		`/tidal/tracks/${trackId}/stream?quality=${encodeURIComponent(quality)}`,
-	);
+	const url = quality
+		? `/tidal/tracks/${trackId}/stream?quality=${encodeURIComponent(quality)}`
+		: `/tidal/tracks/${trackId}/stream`;
+	return apiFetch(url);
 }
 
 // ── Recommendations ──────────────────────────────────────────────────────────

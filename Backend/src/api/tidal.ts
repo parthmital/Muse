@@ -23,6 +23,48 @@ import {
 import axios from "axios";
 import { Jimp } from "jimp";
 
+// ── Quality Chain ────────────────────────────────────────────────────────────
+
+const QUALITY_PRIORITY = [
+	"HI_RES_LOSSLESS",
+	"LOSSLESS",
+	"HIGH",
+	"LOW",
+] as const;
+
+const QUALITY_TOKENS: Record<string, string[]> = {
+	HI_RES_LOSSLESS: [
+		"HI_RES_LOSSLESS",
+		"HIRES_LOSSLESS",
+		"HIRESLOSSLESS",
+		"HIFI_PLUS",
+		"HI_RES_FLAC",
+		"HI_RES",
+		"HIRES",
+		"MASTER",
+		"MASTER_QUALITY",
+		"MQA",
+	],
+	LOSSLESS: ["LOSSLESS", "HIFI"],
+	HIGH: ["HIGH", "HIGH_QUALITY"],
+	LOW: ["LOW", "LOW_QUALITY"],
+};
+
+function normalizeQuality(
+	token: string | undefined,
+): (typeof QUALITY_PRIORITY)[number] {
+	if (!token) return "HI_RES_LOSSLESS";
+	const upper = token
+		.toUpperCase()
+		.trim()
+		.replace(/[^A-Z0-9]+/g, "_");
+	for (const [quality, aliases] of Object.entries(QUALITY_TOKENS)) {
+		if (aliases.includes(upper))
+			return quality as (typeof QUALITY_PRIORITY)[number];
+	}
+	return "HI_RES_LOSSLESS";
+}
+
 // ── Color Cache ──────────────────────────────────────────────────────────────
 const colorCache = new (await import("lru-cache")).LRUCache<string, string>({
 	max: 2000,
@@ -141,7 +183,9 @@ function normalizePlaylist(raw: any) {
 		description: raw.description,
 		numberOfTracks: raw.numberOfTracks,
 		duration: raw.duration,
-		image: hifiClient.tidalImageUrl(raw.image || raw.squareImage),
+		image: hifiClient.tidalImageUrl(
+			raw.squareImage || raw.image || raw.uuid || raw.id,
+		),
 		url: raw.url,
 	};
 }
@@ -590,54 +634,84 @@ export async function tidalRoutes(app: FastifyInstance) {
 		Querystring: { quality?: string };
 	}>("/tidal/tracks/:trackId/stream", async (req, reply) => {
 		const { trackId } = req.params;
-		const quality = req.query.quality ?? "LOSSLESS";
-		const cacheK = `${trackId}:${quality}`;
-		const cached = streamCache.get(cacheK);
-		if (cached) return cached;
-		try {
-			const raw = await hifiClient.getStreamInfo(
-				parseInt(trackId, 10),
-				quality,
-			);
-			let streamUrl: string | null = null;
+		const ua = req.headers["user-agent"] || "";
+		const isIOS =
+			/iPad|iPhone|iPod/.test(ua) ||
+			(ua.includes("Mac") && ua.includes("Safari") && !ua.includes("Chrome"));
 
-			// BTS manifest
-			if (
-				raw.manifestMimeType === "application/vnd.tidal.bts" &&
-				raw.manifest
-			) {
-				try {
-					const decoded = JSON.parse(
-						Buffer.from(raw.manifest, "base64").toString("utf-8"),
-					);
-					streamUrl = decoded.urls?.[0] ?? null;
-				} catch {
-					streamUrl = null;
-				}
-			}
-
-			// DASH manifest fallback
-			if (!streamUrl && raw.manifest) {
-				streamUrl = hifiClient.extractStreamUrlFromManifest(raw.manifest);
-			}
-
-			const result = {
-				trackId: raw.trackId,
-				audioQuality: raw.audioQuality,
-				manifestMimeType: raw.manifestMimeType,
-				manifest: raw.manifest,
-				streamUrl,
-				bitDepth: raw.bitDepth,
-				sampleRate: raw.sampleRate,
-			};
-			streamCache.set(cacheK, result);
-			return result;
-		} catch (err: any) {
-			console.error(
-				`[Stream Error] trackId: ${trackId}, error: ${err.message}`,
-			);
-			return reply.status(502).send({ error: "Failed to fetch stream info" });
+		// Determine base quality
+		let requestedQuality = req.query.quality;
+		if (!requestedQuality && isIOS) {
+			requestedQuality = "LOSSLESS";
 		}
+
+		const startQuality = normalizeQuality(requestedQuality);
+		const startIndex = QUALITY_PRIORITY.indexOf(startQuality);
+
+		let lastError: any = null;
+
+		// Try the requested quality and fall back down the chain
+		for (let i = startIndex; i < QUALITY_PRIORITY.length; i++) {
+			const currentQuality = QUALITY_PRIORITY[i];
+			const cacheK = `${trackId}:${currentQuality}`;
+			const cached = streamCache.get(cacheK);
+			if (cached) return cached;
+
+			try {
+				const raw = await hifiClient.getStreamInfo(
+					parseInt(trackId, 10),
+					currentQuality,
+				);
+				let streamUrl: string | null = null;
+
+				// BTS manifest
+				if (
+					raw.manifestMimeType === "application/vnd.tidal.bts" &&
+					raw.manifest
+				) {
+					try {
+						const decoded = JSON.parse(
+							Buffer.from(raw.manifest, "base64").toString("utf-8"),
+						);
+						streamUrl = decoded.urls?.[0] ?? null;
+					} catch {
+						streamUrl = null;
+					}
+				}
+
+				// DASH manifest fallback
+				if (!streamUrl && raw.manifest) {
+					streamUrl = hifiClient.extractStreamUrlFromManifest(raw.manifest);
+				}
+
+				if (streamUrl) {
+					const result = {
+						trackId: raw.trackId,
+						audioQuality: raw.audioQuality,
+						manifestMimeType: raw.manifestMimeType,
+						manifest: raw.manifest,
+						streamUrl,
+						bitDepth: raw.bitDepth,
+						sampleRate: raw.sampleRate,
+					};
+					streamCache.set(cacheK, result);
+					return result;
+				}
+			} catch (err: any) {
+				lastError = err;
+				app.log.warn(
+					`[Stream Fallback] trackId: ${trackId}, quality: ${currentQuality} failed, trying next...`,
+				);
+			}
+		}
+
+		app.log.error(
+			`[Stream Error] trackId: ${trackId} failed all qualities. Last error: ${lastError?.message}`,
+		);
+		return reply.status(502).send({
+			error: "Failed to fetch stream info",
+			details: lastError?.message,
+		});
 	});
 
 	app.get<{ Params: { trackId: string } }>(
