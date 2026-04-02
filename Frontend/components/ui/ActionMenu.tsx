@@ -7,9 +7,11 @@ import {
 	ReactNode,
 	useLayoutEffect,
 	useCallback,
+	useId,
 } from "react";
 import Image from "next/image";
 import { SearchInput } from "./SearchInput";
+import { useActionMenu } from "@/context/ActionMenuContext";
 
 export interface ActionMenuItem {
 	label?: string;
@@ -29,6 +31,7 @@ interface ActionMenuProps {
 	showCheckmarks?: boolean;
 	onTrigger?: () => void;
 	openOnClick?: boolean;
+	onOpenChange?: (isOpen: boolean) => void;
 }
 
 export function ActionMenu({
@@ -41,19 +44,27 @@ export function ActionMenu({
 	showCheckmarks = false,
 	onTrigger,
 	openOnClick = true,
+	onOpenChange,
 }: ActionMenuProps) {
-	const [isOpen, setIsOpen] = useState(false);
+	const menuId = useId();
+	const { openMenu, closeMenu, isMenuOpen } = useActionMenu();
+	const isOpen = isMenuOpen(menuId);
 	const [searchQuery, setSearchQuery] = useState("");
+	const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
+	const wrapperRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLDivElement>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
+	const initialCoordsRef = useRef<{ x: number; y: number } | null>(null);
+
+	useEffect(() => {
+		onOpenChange?.(isOpen);
+	}, [isOpen, onOpenChange]);
 
 	useEffect(() => {
 		if (isOpen && onTrigger) {
 			onTrigger();
 		}
 	}, [isOpen, onTrigger]);
-	const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
-	const wrapperRef = useRef<HTMLDivElement>(null);
-	const triggerRef = useRef<HTMLDivElement>(null);
-	const contentRef = useRef<HTMLDivElement>(null);
 
 	const filteredItems = items.filter((item) => {
 		if (!item.label) return false;
@@ -61,16 +72,21 @@ export function ActionMenu({
 	});
 
 	const updatePosition = useCallback(() => {
-		if (triggerRef.current && contentRef.current) {
-			const triggerRect = triggerRef.current.getBoundingClientRect();
-			const contentRect = contentRef.current.getBoundingClientRect();
-			const vw = window.innerWidth;
-			const vh = window.innerHeight;
-			const gap = 4;
-			const padding = 12;
+		if (!contentRef.current) return;
 
-			// Width logic: Browser handles it with fixed positioning and whitespace-nowrap
-			// We just need to ensure we don't exceed viewport width
+		const contentRect = contentRef.current.getBoundingClientRect();
+		const vw = window.innerWidth;
+		const vh = window.innerHeight;
+		const gap = 4;
+		const padding = 12;
+
+		let x = initialCoordsRef.current?.x ?? 0;
+		let y = initialCoordsRef.current?.y ?? 0;
+
+		// If we have a trigger reference and no explicit coords (click trigger), position relative to trigger
+		if (triggerRef.current && !initialCoordsRef.current) {
+			const triggerRect = triggerRef.current.getBoundingClientRect();
+
 			const spaces = {
 				top: triggerRect.top - gap,
 				bottom: vh - triggerRect.bottom - gap,
@@ -80,11 +96,11 @@ export function ActionMenu({
 
 			let bestPlacement: NonNullable<ActionMenuProps["placement"]> = placement;
 
-			const fits = (p: NonNullable<ActionMenuProps["placement"]>) => {
-				if (p === "top" || p === "bottom")
-					return spaces[p] >= contentRect.height;
-				return spaces[p] >= contentRect.width;
-			};
+			const fits = (p: NonNullable<ActionMenuProps["placement"]>) =>
+				spaces[p] >=
+				(p === "top" || p === "bottom"
+					? contentRect.height
+					: contentRect.width);
 
 			if (!fits(bestPlacement)) {
 				const sortedSpaces = Object.entries(spaces).sort((a, b) => b[1] - a[1]);
@@ -92,9 +108,6 @@ export function ActionMenu({
 					ActionMenuProps["placement"]
 				>;
 			}
-
-			let x = 0;
-			let y = 0;
 
 			if (bestPlacement === "bottom" || bestPlacement === "top") {
 				x =
@@ -112,13 +125,13 @@ export function ActionMenu({
 						: triggerRect.left - contentRect.width - gap;
 				y = triggerRect.top;
 			}
-
-			// Clamp to viewport
-			x = Math.max(padding, Math.min(x, vw - contentRect.width - padding));
-			y = Math.max(padding, Math.min(y, vh - contentRect.height - padding));
-
-			setCoords({ x, y });
 		}
+
+		// Clamp to viewport
+		x = Math.max(padding, Math.min(x, vw - contentRect.width - padding));
+		y = Math.max(padding, Math.min(y, vh - contentRect.height - padding));
+
+		setCoords({ x, y });
 	}, [align, placement]);
 
 	useLayoutEffect(() => {
@@ -142,7 +155,7 @@ export function ActionMenu({
 				wrapperRef.current &&
 				!wrapperRef.current.contains(event.target as Node)
 			) {
-				setIsOpen(false);
+				closeMenu();
 			}
 		};
 
@@ -153,17 +166,44 @@ export function ActionMenu({
 		return () => {
 			document.removeEventListener("mousedown", handleClickOutside);
 		};
-	}, [isOpen]);
+	}, [isOpen, closeMenu]);
 
+	// Handle context menu (right-click)
 	const handleContextMenu = (e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
-		if (!isOpen) {
+
+		// Open menu at cursor position
+		initialCoordsRef.current = { x: e.clientX, y: e.clientY };
+		openMenu(menuId);
+		setSearchQuery("");
+	};
+
+	// Handle click on trigger
+	const handleTriggerClick = (e: React.MouseEvent) => {
+		if (!openOnClick) return;
+		e.stopPropagation();
+
+		if (isOpen) {
+			closeMenu();
+		} else {
+			// Position will be calculated from trigger ref
+			initialCoordsRef.current = null;
+			openMenu(menuId);
 			setSearchQuery("");
-			if (onTrigger) onTrigger();
 		}
-		setCoords({ x: e.clientX, y: e.clientY });
-		setIsOpen(true);
+	};
+
+	// Handle mouse enter/leave for hover behavior
+	const handleMouseEnter = () => {
+		// Keep menu open when hovering over wrapper
+	};
+
+	const handleMouseLeave = () => {
+		// Close menu when hovering away from the wrapper
+		if (isOpen) {
+			closeMenu();
+		}
 	};
 
 	return (
@@ -171,19 +211,13 @@ export function ActionMenu({
 			ref={wrapperRef}
 			className={`relative inline-block ${className}`}
 			onContextMenu={handleContextMenu}
+			onMouseLeave={handleMouseLeave}
 		>
 			<div
 				ref={triggerRef}
-				onClick={(e) => {
-					if (!openOnClick) return;
-					e.stopPropagation();
-					if (!isOpen) {
-						setCoords(null);
-						setSearchQuery("");
-					}
-					setIsOpen(!isOpen);
-				}}
+				onClick={handleTriggerClick}
 				className={openOnClick ? "cursor-pointer" : ""}
+				onMouseEnter={handleMouseEnter}
 			>
 				{trigger}
 			</div>
@@ -202,6 +236,8 @@ export function ActionMenu({
 						transition: "none",
 					}}
 					className="animate-in fade-in zoom-in-95 flex flex-col rounded-lg border border-neutral-800 bg-neutral-900 p-1 whitespace-nowrap shadow-lg duration-100"
+					onMouseEnter={handleMouseEnter}
+					onMouseLeave={handleMouseLeave}
 				>
 					{showSearch && (
 						<div className="mb-1" onClick={(e) => e.stopPropagation()}>
@@ -222,7 +258,7 @@ export function ActionMenu({
 									e.stopPropagation();
 									item.onClick?.();
 									if (!showCheckmarks || item.checked === undefined) {
-										setIsOpen(false);
+										closeMenu();
 									}
 								}}
 								className={`flex w-full items-center gap-2 ${

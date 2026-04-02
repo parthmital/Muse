@@ -248,7 +248,9 @@ function SearchContentInner() {
 
 	return (
 		<div className="flex flex-col gap-6">
-			<MediaShelf title="Recent Searches" items={recentSearches} />
+			{recentSearches.length > 0 && (
+				<MediaShelf title="Recent Searches" items={recentSearches} />
+			)}
 			<p className="text-xl font-bold text-white">Browse All</p>
 			{searchSections.map((section: { title: string; items: string[] }) => (
 				<CategoryRow

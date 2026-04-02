@@ -57,36 +57,10 @@ export async function browseRoutes(app: FastifyInstance) {
 				};
 			}
 		} catch {
-			// Fall through to discovery
+			// Fall through to empty result
 		}
 
-		// Discovery fallback
-		try {
-			const [popularTracks, popularArtists] = await Promise.all([
-				hifiClient.searchTracks("Trending", 4),
-				hifiClient.searchArtists("Daft Punk", 2),
-			]);
-
-			return {
-				items: [
-					...popularArtists.artists.items.map((a) => ({
-						tidalId: Number(a.id),
-						title: a.name,
-						type: "artist",
-						imageUrl: hifiClient.tidalImageUrl(a.picture),
-					})),
-					...popularTracks.items.map((t) => ({
-						tidalId: Number(t.id),
-						title: t.title,
-						artist: t.artist?.name,
-						type: "track",
-						imageUrl: hifiClient.tidalImageUrl(t.imageId),
-					})),
-				],
-			};
-		} catch {
-			return { items: [] };
-		}
+		return { items: [] };
 	});
 
 	app.post<{

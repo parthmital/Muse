@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { Player } from "@/components/Player";
 
 import { PlayerProvider } from "@/context/PlayerContext";
+import { ActionMenuProvider } from "@/context/ActionMenuContext";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
 	return (
@@ -24,16 +25,18 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 			</head>
 			<body className="scrollbar-hide bg-black text-neutral-400">
 				<PlayerProvider>
-					<div className="flex h-dvh flex-col gap-4 overflow-hidden p-4">
-						<TopBar />
-						<div className="flex grow gap-4 overflow-hidden">
-							<Sidebar />
-							<div className="flex grow flex-col gap-4 overflow-hidden">
-								<PageContainer>{children}</PageContainer>
-								<Player />
+					<ActionMenuProvider>
+						<div className="flex h-dvh flex-col gap-4 overflow-hidden p-4">
+							<TopBar />
+							<div className="flex grow gap-4 overflow-hidden">
+								<Sidebar />
+								<div className="flex grow flex-col gap-4 overflow-hidden">
+									<PageContainer>{children}</PageContainer>
+									<Player />
+								</div>
 							</div>
 						</div>
-					</div>
+					</ActionMenuProvider>
 				</PlayerProvider>
 			</body>
 		</html>

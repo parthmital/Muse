@@ -66,10 +66,11 @@ export function MediaCard({ item }: MediaCardProps) {
 			id={routeId}
 			openOnClick={false}
 			trigger={
-				<Link href={href} className="contents">
-					<div className="group relative">
+				<div className="group relative w-44 shrink-0">
+					{/* Main card content - wrapped in Link for navigation */}
+					<Link href={href} className="block">
 						<div
-							className={`flex w-44 shrink-0 flex-col gap-2 ${isArtist ? "items-center" : ""}`}
+							className={`flex flex-col gap-2 ${isArtist ? "items-center" : ""}`}
 						>
 							<div className="relative mb-1 aspect-square w-full">
 								<FallbackImage
@@ -108,32 +109,35 @@ export function MediaCard({ item }: MediaCardProps) {
 								</>
 							)}
 						</div>
-						<div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
-							{item.pinned && (
-								<IconButton
-									icon="Pin"
-									alt="Pinned"
-									filled
-									className="rounded-full bg-black/60 backdrop-blur-md"
-								/>
-							)}
-							<div className="opacity-0 group-hover:opacity-100 transition-opacity">
-								<DynamicActionMenu
-									type={inferredType}
-									id={routeId}
-									openOnClick={true}
-									trigger={
-										<IconButton
-											icon="More"
-											alt="More"
-											className="rounded-full bg-black/60 backdrop-blur-md"
-										/>
-									}
-								/>
-							</div>
+					</Link>
+
+					{/* Action buttons - outside Link to prevent navigation */}
+					<div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
+						{item.pinned && (
+							<IconButton
+								icon="Pin"
+								alt="Pinned"
+								filled
+								className="rounded-full bg-black/60 backdrop-blur-md"
+							/>
+						)}
+						<div className="opacity-0 group-hover:opacity-100 transition-opacity">
+							<DynamicActionMenu
+								type={inferredType}
+								id={routeId}
+								openOnClick={true}
+								trigger={
+									<IconButton
+										icon="More"
+										alt="More"
+										className="rounded-full bg-black/60 backdrop-blur-md"
+										onClick={(e) => e.preventDefault()}
+									/>
+								}
+							/>
 						</div>
 					</div>
-				</Link>
+				</div>
 			}
 		/>
 	);
