@@ -3,8 +3,10 @@
 import { useState, useEffect } from "react";
 import { MediaShelf } from "@/components/MediaShelf";
 import type { MediaItem } from "@/components/MediaCard";
-import { getHomeShelves } from "@/lib/api";
+import { getPersonalizedHomeShelves } from "@/lib/api";
 import { HomePageSkeleton } from "@/components/ui/Skeletons";
+
+const DEV_USER_ID = "dev-user-001";
 
 export default function Home() {
 	const [shelves, setShelves] = useState<
@@ -20,7 +22,7 @@ export default function Home() {
 
 		async function fetchHomeData() {
 			try {
-				const data = await getHomeShelves();
+				const data = await getPersonalizedHomeShelves(DEV_USER_ID);
 
 				if (cancelled) return;
 
@@ -58,7 +60,7 @@ export default function Home() {
 
 	return (
 		<>
-			{shelves.map((shelf, i) => (
+			{shelves.map((shelf) => (
 				<MediaShelf key={shelf.title} title={shelf.title} items={shelf.items} />
 			))}
 		</>

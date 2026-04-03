@@ -5,6 +5,9 @@ import {
 	recCacheKey,
 	type RecommendedTrack,
 	type CachedFeatures,
+	type RecommendedArtist,
+	type RecommendedAlbum,
+	type RecommendedMix,
 } from "../cache/index.js";
 import { embeddingClient } from "./embeddingClient.js";
 import { getProfile } from "./profileBuilder.js";
@@ -373,4 +376,233 @@ export async function pickRadioSeeds(userId: string): Promise<string[]> {
 	}
 
 	return combined.slice(0, 50);
+}
+
+// ── Homepage Personalized Sections ───────────────────────────────────────────
+
+export async function getMadeForYou(
+	userId: string,
+	limit = 10,
+): Promise<RecommendedTrack[]> {
+	const cacheKey = recCacheKey(userId, "made_for_you");
+	const cached = recCache.get(cacheKey);
+	if (cached) return cached as RecommendedTrack[];
+
+	const tracks = await recommend({ userId, surface: "made_for_you", limit });
+	recCache.set(cacheKey, tracks);
+	return tracks;
+}
+
+export async function getFavouriteArtists(
+	userId: string,
+	limit = 8,
+): Promise<RecommendedArtist[]> {
+	const cacheKey = recCacheKey(userId, "favourite_artists");
+	const cached = recCache.get(cacheKey);
+	if (cached) return cached as unknown as RecommendedArtist[];
+
+	const db = getDb();
+
+	// Get artists from user interactions (plays, likes, saves) and library
+	const artistRows = db
+		.prepare(
+			`
+			SELECT 
+				a.id,
+				a.name,
+				a.picture_url,
+				a.genres,
+				COUNT(ui.id) as play_count,
+				SUM(CASE WHEN ui.event_type IN ('like', 'save', 'follow') THEN 2 
+						 WHEN ui.event_type = 'play' THEN 1 
+						 WHEN ui.event_type = 'skip' THEN -0.5 
+						 ELSE 0 END) as score
+			FROM artists a
+			LEFT JOIN user_interactions ui ON a.id = ui.artist_id AND ui.user_id = ?
+			WHERE ui.user_id = ? OR a.id IN (
+				SELECT item_id FROM user_library WHERE user_id = ? AND item_type = 'artist'
+			)
+			GROUP BY a.id
+			ORDER BY score DESC, play_count DESC
+			LIMIT ?
+		`,
+		)
+		.all(userId, userId, userId, limit) as any[];
+
+	// If no user data, return popular artists
+	let artists: RecommendedArtist[];
+	if (artistRows.length === 0) {
+		const popularRows = db
+			.prepare(
+				"SELECT id, name, picture_url, genres FROM artists ORDER BY popularity DESC LIMIT ?",
+			)
+			.all(limit) as any[];
+		artists = popularRows.map((a, i) => ({
+			artistId: a.id,
+			name: a.name,
+			pictureUrl: a.picture_url ?? null,
+			genres: a.genres ? fromJson<string[]>(a.genres, []) : [],
+			score: (popularRows.length - i) / popularRows.length,
+		}));
+	} else {
+		artists = artistRows.map((a) => ({
+			artistId: a.id,
+			name: a.name,
+			pictureUrl: a.picture_url ?? null,
+			genres: a.genres ? fromJson<string[]>(a.genres, []) : [],
+			score: Math.max(0, a.score ?? 0),
+		}));
+	}
+
+	recCache.set(cacheKey, artists as unknown as RecommendedTrack[]);
+	return artists;
+}
+
+export async function getAlbumsForYou(
+	userId: string,
+	limit = 10,
+): Promise<RecommendedAlbum[]> {
+	const cacheKey = recCacheKey(userId, "albums_for_you");
+	const cached = recCache.get(cacheKey);
+	if (cached) return cached as unknown as RecommendedAlbum[];
+
+	const db = getDb();
+	const profile = await getProfile(userId);
+
+	// Get albums based on user's listening history and preferred genres
+	let albums: RecommendedAlbum[];
+
+	if (
+		profile?.preferredGenres &&
+		Object.keys(profile.preferredGenres).length > 0
+	) {
+		// Get albums from preferred genres
+		const topGenres = Object.entries(profile.preferredGenres)
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 5)
+			.map(([g]) => g);
+
+		const placeholders = topGenres.map(() => "?").join(",");
+		const albumRows = db
+			.prepare(
+				`
+				SELECT DISTINCT 
+					al.id, 
+					al.title, 
+					al.cover_url, 
+					al.release_date,
+					ar.name as artist_name,
+					tf.genre,
+					MAX(t.popularity) as album_popularity
+				FROM albums al
+				JOIN tracks t ON t.album_id = al.id
+				JOIN track_features tf ON tf.track_id = t.id
+				JOIN artists ar ON ar.id = al.artist_id OR ar.id = t.artist_id
+				WHERE tf.genre IN (${placeholders})
+				GROUP BY al.id
+				ORDER BY album_popularity DESC, al.release_date DESC
+				LIMIT ?
+			`,
+			)
+			.all(...topGenres, limit) as any[];
+
+		albums = albumRows.map((a, i) => ({
+			albumId: a.id,
+			title: a.title,
+			artistName: a.artist_name ?? null,
+			coverUrl: a.cover_url ?? null,
+			releaseDate: a.release_date ?? null,
+			score: (albumRows.length - i) / albumRows.length,
+		}));
+	} else {
+		// Fallback to popular albums (using track popularity as proxy)
+		const albumRows = db
+			.prepare(
+				`
+				SELECT 
+					al.id, 
+					al.title, 
+					al.cover_url, 
+					al.release_date,
+					ar.name as artist_name,
+					MAX(t.popularity) as album_popularity
+				FROM albums al
+				JOIN tracks t ON t.album_id = al.id
+				LEFT JOIN artists ar ON ar.id = al.artist_id
+				GROUP BY al.id
+				ORDER BY album_popularity DESC, al.release_date DESC
+				LIMIT ?
+			`,
+			)
+			.all(limit) as any[];
+
+		albums = albumRows.map((a, i) => ({
+			albumId: a.id,
+			title: a.title,
+			artistName: a.artist_name ?? null,
+			coverUrl: a.cover_url ?? null,
+			releaseDate: a.release_date ?? null,
+			score: (albumRows.length - i) / albumRows.length,
+		}));
+	}
+
+	recCache.set(cacheKey, albums as unknown as RecommendedTrack[]);
+	return albums;
+}
+
+export async function getTopMixes(
+	userId: string,
+	limit = 6,
+): Promise<RecommendedMix[]> {
+	const cacheKey = recCacheKey(userId, "top_mixes");
+	const cached = recCache.get(cacheKey);
+	if (cached) return cached as unknown as RecommendedMix[];
+
+	const db = getDb();
+
+	// Get mix IDs from user's listening history
+	const mixRows = db
+		.prepare(
+			`
+			SELECT 
+				t.mix_ids,
+				COUNT(ui.id) as play_count,
+				MAX(ui.occurred_at) as last_played
+			FROM user_interactions ui
+			JOIN tracks t ON t.id = ui.track_id
+			WHERE ui.user_id = ? AND ui.event_type = 'play' AND t.mix_ids IS NOT NULL
+			GROUP BY t.mix_ids
+			ORDER BY play_count DESC, last_played DESC
+			LIMIT 20
+		`,
+		)
+		.all(userId) as any[];
+
+	// Parse mix_ids JSON and aggregate
+	const mixScores = new Map<string, number>();
+	for (const row of mixRows) {
+		if (!row.mix_ids) continue;
+		const mixIds = fromJson<string[]>(row.mix_ids, []);
+		for (const mixId of mixIds) {
+			mixScores.set(mixId, (mixScores.get(mixId) ?? 0) + (row.play_count ?? 1));
+		}
+	}
+
+	// Convert to sorted array and take top
+	const sortedMixes = [...mixScores.entries()]
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, limit);
+
+	// Build mix objects (mixes don't have a separate table, so we construct from listening data)
+	const mixes: RecommendedMix[] = sortedMixes.map(([mixId, score], i) => ({
+		mixId,
+		title: `Mix ${mixId.replace(/-/g, " ").replace(/_/g, " ")}`,
+		subTitle: "Based on your listening",
+		coverUrl: null,
+		score: score / (sortedMixes[0]?.[1] ?? 1),
+	}));
+
+	// If no mixes from history, return empty (mixes need to come from actual listening)
+	recCache.set(cacheKey, mixes as unknown as RecommendedTrack[]);
+	return mixes;
 }

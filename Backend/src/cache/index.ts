@@ -87,6 +87,31 @@ export type RecommendedTrack = {
 	reason?: string;
 };
 
+export type RecommendedArtist = {
+	artistId: string;
+	name: string;
+	pictureUrl: string | null;
+	genres?: string[];
+	score: number;
+};
+
+export type RecommendedAlbum = {
+	albumId: string;
+	title: string;
+	artistName: string | null;
+	coverUrl: string | null;
+	releaseDate?: string | null;
+	score: number;
+};
+
+export type RecommendedMix = {
+	mixId: string;
+	title: string;
+	subTitle?: string;
+	coverUrl: string | null;
+	score: number;
+};
+
 export const recCache = new LRUCache<string, RecommendedTrack[]>({
 	max: 50_000,
 	ttl: config.cacheRecTtlMs,

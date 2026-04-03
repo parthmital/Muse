@@ -252,6 +252,12 @@ export async function getHomeShelves(): Promise<{ shelves: HomeShelf[] }> {
 	return apiFetch(`/browse/home`);
 }
 
+export async function getPersonalizedHomeShelves(
+	userId: string,
+): Promise<{ shelves: HomeShelf[] }> {
+	return apiFetch(`/users/${userId}/homepage`);
+}
+
 export async function saveSearch(data: {
 	query?: string;
 	itemType?: string;

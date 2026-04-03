@@ -1,10 +1,27 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { resolveUser, getDb } from "../db/helpers.js";
-import { recommend, pickRadioSeeds } from "../services/recommender.js";
+import {
+	recommend,
+	pickRadioSeeds,
+	getMadeForYou,
+	getFavouriteArtists,
+	getAlbumsForYou,
+	getTopMixes,
+} from "../services/recommender.js";
 import { initQueue, updateQueue, getQueue } from "../services/queueManager.js";
 
-const SURFACES = ["queue", "home", "discover", "daily_mix", "radio"] as const;
+const SURFACES = [
+	"queue",
+	"home",
+	"discover",
+	"daily_mix",
+	"radio",
+	"made_for_you",
+	"top_mixes",
+	"favourite_artists",
+	"albums_for_you",
+] as const;
 
 export async function recommendationRoutes(app: FastifyInstance) {
 	app.get<{
@@ -87,4 +104,75 @@ export async function recommendationRoutes(app: FastifyInstance) {
 		const tracks = await getQueue(sessionId);
 		return { sessionId, tracks };
 	});
+
+	// ── Homepage Personalized Sections ───────────────────────────────────────────
+
+	app.get<{ Params: { userId: string } }>(
+		"/users/:userId/homepage",
+		async (req, reply) => {
+			const user = resolveUser(req.params.userId);
+			if (!user) return reply.status(404).send({ error: "User not found" });
+
+			const [madeForYou, topMixes, favouriteArtists, albumsForYou] =
+				await Promise.all([
+					getMadeForYou(user.id, 10),
+					getTopMixes(user.id, 6),
+					getFavouriteArtists(user.id, 8),
+					getAlbumsForYou(user.id, 10),
+				]);
+
+			return {
+				userId: req.params.userId,
+				generatedAt: Date.now(),
+				shelves: [
+					{
+						title: "Made For You",
+						type: "tracks",
+						items: madeForYou.map((t) => ({
+							id: t.trackId,
+							title: t.title,
+							artist: t.artistName,
+							tidalId: t.trackId,
+							imageUrl: t.coverUrl,
+							type: "track",
+						})),
+					},
+					{
+						title: "Your Top Mixes",
+						type: "mixes",
+						items: topMixes.map((m) => ({
+							id: m.mixId,
+							title: m.title,
+							tidalId: m.mixId,
+							imageUrl: m.coverUrl,
+							type: "mix",
+						})),
+					},
+					{
+						title: "Your Favourite Artists",
+						type: "artists",
+						items: favouriteArtists.map((a) => ({
+							id: a.artistId,
+							title: a.name,
+							tidalId: a.artistId,
+							imageUrl: a.pictureUrl,
+							type: "artist",
+						})),
+					},
+					{
+						title: "Albums For You",
+						type: "albums",
+						items: albumsForYou.map((a) => ({
+							id: a.albumId,
+							title: a.title,
+							artist: a.artistName,
+							tidalId: a.albumId,
+							imageUrl: a.coverUrl,
+							type: "album",
+						})),
+					},
+				],
+			};
+		},
+	);
 }
