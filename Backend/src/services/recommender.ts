@@ -497,7 +497,7 @@ export async function getAlbumsForYou(
 				FROM albums al
 				JOIN tracks t ON t.album_id = al.id
 				JOIN track_features tf ON tf.track_id = t.id
-				JOIN artists ar ON ar.id = al.artist_id OR ar.id = t.artist_id
+				JOIN artists ar ON ar.id = t.artist_id
 				WHERE tf.genre IN (${placeholders})
 				GROUP BY al.id
 				ORDER BY album_popularity DESC, al.release_date DESC
@@ -528,7 +528,7 @@ export async function getAlbumsForYou(
 					MAX(t.popularity) as album_popularity
 				FROM albums al
 				JOIN tracks t ON t.album_id = al.id
-				LEFT JOIN artists ar ON ar.id = al.artist_id
+				LEFT JOIN artists ar ON ar.id = t.artist_id
 				GROUP BY al.id
 				ORDER BY album_popularity DESC, al.release_date DESC
 				LIMIT ?

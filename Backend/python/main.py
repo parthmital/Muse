@@ -3,7 +3,7 @@ python/main.py
 Embedding + FAISS microservice. The only Python in the stack.
 
 Runs on:
-  uvicorn main:app --host 0.0.0.0 --port 8001
+  uvicorn main:app --host 0.0.0.0 --port 6000
 
 GPU usage:
   - Embedding: uses CUDA if torch.cuda.is_available(), else CPU.
@@ -225,4 +225,4 @@ def health():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run("main:app", host="0.0.0.0", port=6000, reload=False)

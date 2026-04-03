@@ -11,8 +11,8 @@ function num(key: string, fallback: number) {
 
 export const config = {
 	nodeEnv: env("NODE_ENV", "development"),
-	port: num("PORT", 8000),
-	apiBaseUrl: env("API_BASE_URL", "http://localhost:8000"),
+	port: num("PORT", 5000),
+	apiBaseUrl: env("API_BASE_URL", "http://localhost:5000"),
 	logLevel: env("LOG_LEVEL", "info"),
 
 	sqlitePath: env("SQLITE_PATH", "./data/music_rec.db"),
@@ -20,7 +20,7 @@ export const config = {
 	hifiBaseUrl: env("HIFI_API_BASE_URL", ""),
 	hifiApiKey: env("HIFI_API_KEY", ""),
 
-	tidalApiBaseUrl: env("TIDAL_API_BASE_URL", "http://localhost:9000"),
+	tidalApiBaseUrl: env("TIDAL_API_BASE_URL", "http://localhost:4000"),
 
 	spotifyClientId: env("SPOTIFY_CLIENT_ID", ""),
 	spotifyClientSecret: env("SPOTIFY_CLIENT_SECRET", ""),
@@ -29,7 +29,7 @@ export const config = {
 
 	musicbrainzApp: env("MUSICBRAINZ_APP", "MusicRecEngine/1.0"),
 
-	embeddingServiceUrl: env("EMBEDDING_SERVICE_URL", "http://localhost:8001"),
+	embeddingServiceUrl: env("EMBEDDING_SERVICE_URL", "http://localhost:6000"),
 	embeddingDim: num("EMBEDDING_DIM", 384),
 
 	queueSize: num("QUEUE_SIZE", 25),
