@@ -8,10 +8,12 @@ import {
 	useLayoutEffect,
 	useCallback,
 	useId,
+	useContext,
 } from "react";
 import Image from "next/image";
 import { SearchInput } from "./SearchInput";
 import { useActionMenu } from "@/context/ActionMenuContext";
+import { PageContainerContext } from "./PageContainer";
 
 export interface ActionMenuItem {
 	label?: string;
@@ -32,6 +34,7 @@ interface ActionMenuProps {
 	onTrigger?: () => void;
 	openOnClick?: boolean;
 	onOpenChange?: (isOpen: boolean) => void;
+	containerRef?: React.RefObject<HTMLElement | null>;
 }
 
 export function ActionMenu({
@@ -45,16 +48,39 @@ export function ActionMenu({
 	onTrigger,
 	openOnClick = true,
 	onOpenChange,
+	containerRef,
 }: ActionMenuProps) {
 	const menuId = useId();
 	const { openMenu, closeMenu, isMenuOpen } = useActionMenu();
 	const isOpen = isMenuOpen(menuId);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
+	const [isPositioned, setIsPositioned] = useState(false);
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 	const initialCoordsRef = useRef<{ x: number; y: number } | null>(null);
+
+	// Use explicit containerRef prop, or fall back to PageContainerContext
+	const pageContainerContext = useContext(PageContainerContext);
+	const effectiveContainerRef =
+		containerRef ?? pageContainerContext?.containerRef;
+
+	// Prevent scroll on underlying containers when menu is open
+	useEffect(() => {
+		const container = effectiveContainerRef?.current;
+		if (!container) return;
+
+		if (isOpen) {
+			container.style.overflow = "hidden";
+		} else {
+			container.style.overflow = "";
+		}
+
+		return () => {
+			container.style.overflow = "";
+		};
+	}, [isOpen, effectiveContainerRef]);
 
 	useEffect(() => {
 		onOpenChange?.(isOpen);
@@ -75,10 +101,21 @@ export function ActionMenu({
 		if (!contentRef.current) return;
 
 		const contentRect = contentRef.current.getBoundingClientRect();
-		const vw = window.innerWidth;
-		const vh = window.innerHeight;
+		const container = effectiveContainerRef?.current;
+		const containerRect = container?.getBoundingClientRect();
+
+		// Use container bounds if provided, otherwise viewport
+		const bounds = containerRect || {
+			top: 0,
+			left: 0,
+			right: window.innerWidth,
+			bottom: window.innerHeight,
+			width: window.innerWidth,
+			height: window.innerHeight,
+		};
+
 		const gap = 4;
-		const padding = 12;
+		const padding = 8;
 
 		let x = initialCoordsRef.current?.x ?? 0;
 		let y = initialCoordsRef.current?.y ?? 0;
@@ -87,11 +124,12 @@ export function ActionMenu({
 		if (triggerRef.current && !initialCoordsRef.current) {
 			const triggerRect = triggerRef.current.getBoundingClientRect();
 
+			// Calculate available space within container
 			const spaces = {
-				top: triggerRect.top - gap,
-				bottom: vh - triggerRect.bottom - gap,
-				left: triggerRect.left - gap,
-				right: vw - triggerRect.right - gap,
+				top: triggerRect.top - bounds.top - gap,
+				bottom: bounds.bottom - triggerRect.bottom - gap,
+				left: triggerRect.left - bounds.left - gap,
+				right: bounds.right - triggerRect.right - gap,
 			};
 
 			let bestPlacement: NonNullable<ActionMenuProps["placement"]> = placement;
@@ -127,16 +165,30 @@ export function ActionMenu({
 			}
 		}
 
-		// Clamp to viewport
-		x = Math.max(padding, Math.min(x, vw - contentRect.width - padding));
-		y = Math.max(padding, Math.min(y, vh - contentRect.height - padding));
+		// Clamp to PageContainer bounds (or viewport if no container)
+		x = Math.max(
+			bounds.left + padding,
+			Math.min(x, bounds.right - contentRect.width - padding),
+		);
+		y = Math.max(
+			bounds.top + padding,
+			Math.min(y, bounds.bottom - contentRect.height - padding),
+		);
 
 		setCoords({ x, y });
+		setIsPositioned(true);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [align, placement]);
 
 	useLayoutEffect(() => {
 		if (isOpen) {
-			updatePosition();
+			// Reset positioned state when opening
+			setIsPositioned(false);
+			// Defer position calculation to avoid synchronous setState warning
+			// This is intentional for DOM measurement before paint
+			requestAnimationFrame(() => {
+				updatePosition();
+			});
 
 			const handleUpdate = () => updatePosition();
 			window.addEventListener("scroll", handleUpdate, true);
@@ -146,6 +198,8 @@ export function ActionMenu({
 				window.removeEventListener("scroll", handleUpdate, true);
 				window.removeEventListener("resize", handleUpdate);
 			};
+		} else {
+			setIsPositioned(false);
 		}
 	}, [isOpen, updatePosition]);
 
@@ -229,10 +283,10 @@ export function ActionMenu({
 						position: "fixed",
 						top: coords?.y ?? 0,
 						left: coords?.x ?? 0,
-						opacity: coords ? 1 : 0,
-						visibility: coords ? "visible" : "hidden",
-						pointerEvents: coords ? "auto" : "none",
-						zIndex: 50,
+						opacity: isPositioned ? 1 : 0,
+						visibility: isPositioned ? "visible" : "hidden",
+						pointerEvents: isPositioned ? "auto" : "none",
+						zIndex: 9999,
 						transition: "none",
 					}}
 					className="animate-in fade-in zoom-in-95 flex flex-col rounded-lg border border-neutral-800 bg-neutral-900 p-1 whitespace-nowrap shadow-lg duration-100"
