@@ -91,7 +91,7 @@ export async function browseRoutes(app: FastifyInstance) {
 	});
 
 	// ── Home page aggregation endpoint ─────────────────────────────────────
-	app.get("/browse/home", async () => {
+	app.get("/browse/home", async (req) => {
 		try {
 			const [trackRes, albumRes, artistRes] = await Promise.allSettled([
 				hifiClient.searchTracks("trending", 10),
@@ -107,6 +107,34 @@ export async function browseRoutes(app: FastifyInstance) {
 				artistRes.status === "fulfilled"
 					? (artistRes.value.artists?.items ?? [])
 					: [];
+
+			if (trackRes.status === "rejected") {
+				req.log.warn(
+					{ error: trackRes.reason },
+					"browse/home: track source failed",
+				);
+			}
+			if (albumRes.status === "rejected") {
+				req.log.warn(
+					{ error: albumRes.reason },
+					"browse/home: album source failed",
+				);
+			}
+			if (artistRes.status === "rejected") {
+				req.log.warn(
+					{ error: artistRes.reason },
+					"browse/home: artist source failed",
+				);
+			}
+
+			req.log.info(
+				{
+					trendingCount: trending.length,
+					albumCount: albums.length,
+					artistCount: artists.length,
+				},
+				"browse/home source counts",
+			);
 
 			return {
 				shelves: [
@@ -148,7 +176,8 @@ export async function browseRoutes(app: FastifyInstance) {
 					},
 				],
 			};
-		} catch {
+		} catch (error) {
+			req.log.error({ error }, "browse/home failed unexpectedly");
 			return { shelves: [] };
 		}
 	});

@@ -7,6 +7,7 @@
  *
  * SINGLE SOURCE OF TRUTH for API_BASE.
  */
+import { logger } from "@/lib/logger";
 
 export const API_BASE =
 	process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
@@ -137,20 +138,44 @@ export interface HomeShelf {
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 	const url = `${API_BASE}${path}`;
-	const res = await fetch(url, {
-		...init,
-		headers: {
-			"Content-Type": "application/json",
-			...init?.headers,
-		},
-	});
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			...init,
+			headers: {
+				"Content-Type": "application/json",
+				...init?.headers,
+			},
+		});
+	} catch (error) {
+		logger.error("apiFetch", "Network failure while calling backend", error, {
+			url,
+			method: init?.method ?? "GET",
+		});
+		throw error;
+	}
 
 	if (!res.ok) {
 		const body = await res.json().catch(() => ({}));
+		logger.warn("apiFetch", "Backend returned non-OK response", {
+			url,
+			method: init?.method ?? "GET",
+			status: res.status,
+			statusText: res.statusText,
+			body,
+		});
 		throw new ApiError(res.status, body.error ?? res.statusText, body);
 	}
 
-	return res.json();
+	try {
+		return (await res.json()) as T;
+	} catch (error) {
+		logger.error("apiFetch", "Failed to parse backend JSON response", error, {
+			url,
+			method: init?.method ?? "GET",
+		});
+		throw error;
+	}
 }
 
 export class ApiError extends Error {
@@ -249,13 +274,58 @@ export async function getRecentSearches(): Promise<{ items: any[] }> {
 }
 
 export async function getHomeShelves(): Promise<{ shelves: HomeShelf[] }> {
-	return apiFetch(`/browse/home`);
+	const response = await apiFetch<{ shelves: HomeShelf[] }>(`/browse/home`);
+	logger.info("getHomeShelves", "Fetched browse home shelves", {
+		shelfCount: response.shelves?.length ?? 0,
+		totalItems:
+			response.shelves?.reduce(
+				(total, shelf) => total + (shelf.items?.length ?? 0),
+				0,
+			) ?? 0,
+	});
+	return response;
 }
 
 export async function getPersonalizedHomeShelves(
 	userId: string,
 ): Promise<{ shelves: HomeShelf[] }> {
-	return apiFetch(`/users/${userId}/homepage`);
+	try {
+		const response = await apiFetch<{ shelves: HomeShelf[] }>(
+			`/users/${userId}/homepage`,
+		);
+		if (response.shelves?.length) {
+			return response;
+		}
+		logger.info(
+			"getPersonalizedHomeShelves",
+			"Personalized shelves were empty",
+			{
+				userId,
+			},
+		);
+	} catch (error) {
+		logger.warn(
+			"getPersonalizedHomeShelves",
+			"Personalized homepage request failed, falling back to browse home",
+			{
+				userId,
+				error:
+					error instanceof Error
+						? { name: error.name, message: error.message }
+						: error,
+			},
+		);
+	}
+
+	const fallback = await getHomeShelves();
+	if (!fallback.shelves?.some((shelf) => shelf.items?.length)) {
+		logger.warn(
+			"getPersonalizedHomeShelves",
+			"Fallback browse home shelves are also empty",
+			{ userId },
+		);
+	}
+	return fallback;
 }
 
 export async function saveSearch(data: {

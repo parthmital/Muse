@@ -2,6 +2,7 @@
 
 import Image, { ImageProps } from "next/image";
 import { useState } from "react";
+import { logger } from "@/lib/logger";
 
 type FallbackType = "Playlist" | "Album" | "Artist" | "Notes" | "Search";
 
@@ -17,17 +18,12 @@ export function FallbackImage({
 	className,
 	...props
 }: FallbackImageProps) {
-	const [error, setError] = useState(false);
-	const [prevSrc, setPrevSrc] = useState(src);
-
-	if (src !== prevSrc) {
-		setPrevSrc(src);
-		setError(false);
-	}
+	const [failedSrc, setFailedSrc] = useState<string | null>(null);
+	const didCurrentSrcFail = !!src && failedSrc === src;
 
 	const fallbackSrc = `/icons/Name=${fallbackType}, Filled=No.svg`;
 
-	if (error || !src) {
+	if (didCurrentSrcFail || !src) {
 		const isFill = !!props.fill;
 
 		return (
@@ -60,7 +56,18 @@ export function FallbackImage({
 			src={src}
 			alt={alt}
 			className={className}
-			onError={() => setError(true)}
+			onError={() => {
+				logger.warn(
+					"FallbackImage",
+					"Image load failed, switching to fallback",
+					{
+						src,
+						alt,
+						fallbackType,
+					},
+				);
+				setFailedSrc(src ?? null);
+			}}
 		/>
 	);
 }

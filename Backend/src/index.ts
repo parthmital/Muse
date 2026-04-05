@@ -31,11 +31,38 @@ const app = Fastify({
 try {
 	runMigrations();
 
+	const tableCounts = {
+		tracks: db.prepare("SELECT COUNT(*) as c FROM tracks").get() as {
+			c: number;
+		},
+		artists: db.prepare("SELECT COUNT(*) as c FROM artists").get() as {
+			c: number;
+		},
+		albums: db.prepare("SELECT COUNT(*) as c FROM albums").get() as {
+			c: number;
+		},
+	};
+
+	app.log.info(
+		{
+			tracks: tableCounts.tracks.c,
+			artists: tableCounts.artists.c,
+			albums: tableCounts.albums.c,
+		},
+		"Dataset row counts at startup",
+	);
+
+	if (tableCounts.tracks.c === 0 && tableCounts.artists.c === 0) {
+		app.log.warn(
+			"Dataset appears empty. Homepage recommendations may return no items until ingestion/sync runs.",
+		);
+	}
+
 	const DEV_USER_ID = "dev-user-001";
 	const existing = resolveUser(DEV_USER_ID);
 
 	if (!existing) {
-		console.log("Initializing dev user...");
+		app.log.info("Initializing dev user");
 		db.prepare(
 			"INSERT OR IGNORE INTO users (id, external_id, is_new) VALUES (?, ?, 0)",
 		).run(DEV_USER_ID, DEV_USER_ID);
@@ -47,14 +74,18 @@ try {
 	// Check Tidal-API health
 	try {
 		await axios.get(`${config.tidalApiBaseUrl}/`, { timeout: 2000 });
-		console.log(`[Health] Tidal-API is UP at ${config.tidalApiBaseUrl}`);
+		app.log.info(
+			{ tidalApiBaseUrl: config.tidalApiBaseUrl },
+			"Tidal-API is reachable",
+		);
 	} catch (e: any) {
-		console.warn(
-			`[Health] Tidal-API is UNREACHABLE at ${config.tidalApiBaseUrl}: ${e.message}`,
+		app.log.warn(
+			{ tidalApiBaseUrl: config.tidalApiBaseUrl, error: e?.message },
+			"Tidal-API is unreachable during startup health check",
 		);
 	}
 } catch (e) {
-	console.error("Initialization error:", e);
+	app.log.error({ error: e }, "Initialization error");
 }
 
 await app.register(cors, { origin: true });
@@ -77,6 +108,36 @@ await app.register(browseRoutes);
 await app.register(contextMenuRoutes);
 await app.register(actionRoutes);
 
+app.setErrorHandler((error, request, reply) => {
+	app.log.error(
+		{
+			error,
+			method: request.method,
+			url: request.url,
+			requestId: request.id,
+		},
+		"Unhandled API error",
+	);
+
+	if (reply.sent) return;
+	reply.status(error.statusCode ?? 500).send({
+		error: "Internal server error",
+		requestId: request.id,
+	});
+});
+
+app.setNotFoundHandler((request, reply) => {
+	app.log.warn(
+		{
+			method: request.method,
+			url: request.url,
+			requestId: request.id,
+		},
+		"Route not found",
+	);
+	reply.status(404).send({ error: "Not found", requestId: request.id });
+});
+
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get("/health", async () => {
 	const embHealth = await embeddingClient.health();
@@ -94,3 +155,11 @@ try {
 	app.log.error(err);
 	process.exit(1);
 }
+
+process.on("unhandledRejection", (reason) => {
+	app.log.error({ reason }, "Unhandled promise rejection");
+});
+
+process.on("uncaughtException", (error) => {
+	app.log.fatal({ error }, "Uncaught exception");
+});

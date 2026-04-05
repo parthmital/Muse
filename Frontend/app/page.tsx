@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { MediaShelf } from "@/components/MediaShelf";
-import type { MediaItem } from "@/components/MediaCard";
+import type { MediaItem, MediaType } from "@/components/MediaCard";
 import { getPersonalizedHomeShelves } from "@/lib/api";
 import { HomePageSkeleton } from "@/components/ui/Skeletons";
+import { logger } from "@/lib/logger";
 
 const DEV_USER_ID = "dev-user-001";
 
@@ -16,6 +17,7 @@ export default function Home() {
 		}>
 	>([]);
 	const [isLoaded, setIsLoaded] = useState(false);
+	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -31,7 +33,7 @@ export default function Home() {
 					.map((shelf) => ({
 						title: shelf.title,
 						items: shelf.items.map((item) => ({
-							type: (item.type || "album") as any,
+							type: (item.type || "album") as MediaType,
 							title: item.title,
 							artist: item.artist,
 							tidalId: item.tidalId,
@@ -41,8 +43,18 @@ export default function Home() {
 					}));
 
 				setShelves(mappedShelves);
-			} catch {
-				// Silently fail
+				if (mappedShelves.length === 0) {
+					logger.warn(
+						"HomePage",
+						"Homepage loaded but returned no displayable shelves",
+						{ userId: DEV_USER_ID },
+					);
+				}
+			} catch (error) {
+				logger.error("HomePage", "Failed to load homepage shelves", error, {
+					userId: DEV_USER_ID,
+				});
+				setErrorMessage("Couldn't load your homepage right now.");
 			} finally {
 				if (!cancelled) setIsLoaded(true);
 			}
@@ -56,6 +68,28 @@ export default function Home() {
 
 	if (!isLoaded) {
 		return <HomePageSkeleton />;
+	}
+
+	if (errorMessage) {
+		return (
+			<div className="rounded-lg border border-red-500/30 bg-red-500/5 p-6">
+				<p className="font-medium text-red-300">{errorMessage}</p>
+				<p className="mt-2 text-sm text-neutral-400">
+					Check backend logs for `HomePage` and `apiFetch` entries.
+				</p>
+			</div>
+		);
+	}
+
+	if (shelves.length === 0) {
+		return (
+			<div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-6">
+				<p className="font-medium text-white">No homepage content yet.</p>
+				<p className="mt-2 text-sm text-neutral-400">
+					We couldn&apos;t find any shelves to show right now.
+				</p>
+			</div>
+		);
 	}
 
 	return (
