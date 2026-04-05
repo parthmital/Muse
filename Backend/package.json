@@ -15,7 +15,7 @@
 		"@fastify/swagger": "^8.14.0",
 		"@fastify/swagger-ui": "^4.0.0",
 		"axios": "^1.7.2",
-		"better-sqlite3": "^9.6.0",
+		"better-sqlite3": "^12.8.0",
 		"dotenv": "^16.4.5",
 		"fast-average-color": "^9.5.0",
 		"fastify": "^4.27.0",
