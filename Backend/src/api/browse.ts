@@ -91,7 +91,11 @@ export async function browseRoutes(app: FastifyInstance) {
 	});
 
 	// ── Home page aggregation endpoint ─────────────────────────────────────
-	app.get("/browse/home", async (req) => {
+	app.get("/browse/home", async (req, reply) => {
+		reply.header(
+			"Cache-Control",
+			"public, max-age=30, stale-while-revalidate=120",
+		);
 		try {
 			const [trackRes, albumRes, artistRes] = await Promise.allSettled([
 				hifiClient.searchTracks("trending", 10),

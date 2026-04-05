@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, Suspense, useState } from "react";
+import { useRef, Suspense, useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { MediaShelf } from "@/components/MediaShelf";
 import { MediaCard, MediaItem } from "@/components/MediaCard";
@@ -49,6 +49,7 @@ function SearchContentInner() {
 	const searchParams = useSearchParams();
 	const query = searchParams.get("q") || "";
 	const [activeFilter, setActiveFilter] = useState("All");
+	const [visibleSongs, setVisibleSongs] = useState(40);
 
 	const { data: sectionsData } = useSWR("search-sections", getSearchSections);
 	const { data: recentData } = useSWR("recent-searches", getRecentSearches);
@@ -79,6 +80,14 @@ function SearchContentInner() {
 		tidalPlaylistToMediaItem,
 	);
 	const playlists = tidalPlaylists;
+	const visibleSongItems = useMemo(
+		() => filteredSongs.slice(0, visibleSongs),
+		[filteredSongs, visibleSongs],
+	);
+
+	useEffect(() => {
+		setVisibleSongs(40);
+	}, [query, activeFilter]);
 
 	// Build top result for "All" view
 	const topResultItem: MediaItem | null =
@@ -141,13 +150,26 @@ function SearchContentInner() {
 								/>
 								<div className="flex flex-col gap-2">
 									{filteredSongs.length > 0 ? (
-										filteredSongs.map((song, i) => (
-											<SongRow
-												key={`${song.title}-${i}`}
-												song={song}
-												index={i}
-											/>
-										))
+										<>
+											{visibleSongItems.map((song, i) => (
+												<SongRow
+													key={String(
+														song.tidalId ?? `${song.title}-${song.artist}`,
+													)}
+													song={song}
+													index={i}
+												/>
+											))}
+											{filteredSongs.length > visibleSongItems.length && (
+												<button
+													type="button"
+													onClick={() => setVisibleSongs((prev) => prev + 40)}
+													className="mt-3 self-start rounded-md border border-neutral-700 px-3 py-1 text-sm text-neutral-300 hover:bg-neutral-800"
+												>
+													Load more songs
+												</button>
+											)}
+										</>
 									) : (
 										<div className="text-neutral-500">
 											No songs found for &quot;{query}&quot;

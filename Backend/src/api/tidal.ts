@@ -23,6 +23,7 @@ import {
 import axios from "axios";
 import { Jimp } from "jimp";
 import Vibrant from "node-vibrant";
+import pLimit from "p-limit";
 
 // ── Quality Chain ────────────────────────────────────────────────────────────
 
@@ -69,6 +70,13 @@ function normalizeQuality(
 // ── Color Cache ──────────────────────────────────────────────────────────────
 const colorCache = new (await import("lru-cache")).LRUCache<string, string>({
 	max: 2000,
+});
+const missingImageCache = new (await import("lru-cache")).LRUCache<
+	string,
+	true
+>({
+	max: 5000,
+	ttl: 1000 * 60 * 15,
 });
 
 // ── Normalizers ──────────────────────────────────────────────────────────────
@@ -347,6 +355,11 @@ async function fetchTidalImage(
 	requestedSize: number,
 	type: string,
 ): Promise<{ data: Buffer; actualSize: number } | null> {
+	const missKey = `${pictureId}:${requestedSize}:${type}`;
+	if (missingImageCache.has(missKey)) {
+		return null;
+	}
+
 	const slugs = buildSlugs(pictureId);
 	const domains = ["resources.tidal.com", "images.tidal.com"];
 	const exts = [".jpg", ".webp", ".png"];
@@ -354,32 +367,61 @@ async function fetchTidalImage(
 		requestedSize,
 		...SUPPORTED_SIZES.filter((s) => s !== requestedSize),
 	];
+	const limit = pLimit(8);
 
-	// Priority: Standard JPG on primary domain
+	const tryCandidates = async (
+		candidates: Array<{ url: string; size: number }>,
+	): Promise<{ data: Buffer; actualSize: number } | null> => {
+		if (!candidates.length) return null;
+		try {
+			return await Promise.any(
+				candidates.map(({ url, size }) =>
+					limit(async () => {
+						const buffer = await fetchImageBuffer(url);
+						if (!buffer || buffer.length <= 500) {
+							throw new Error("Image candidate failed");
+						}
+						return { data: buffer, actualSize: size };
+					}),
+				),
+			);
+		} catch {
+			return null;
+		}
+	};
+
+	const primaryCandidates: Array<{ url: string; size: number }> = [];
 	for (const slug of slugs) {
 		for (const s of sizes) {
 			const dim = type === "video" ? `${s}x720` : `${s}x${s}`;
-			const url = `https://${domains[0]}/images/${slug}/${dim}${exts[0]}`;
-			const buffer = await fetchImageBuffer(url);
-			if (buffer && buffer.length > 500) return { data: buffer, actualSize: s };
+			primaryCandidates.push({
+				url: `https://${domains[0]}/images/${slug}/${dim}${exts[0]}`,
+				size: s,
+			});
 		}
 	}
+	const primary = await tryCandidates(primaryCandidates);
+	if (primary) return primary;
 
-	// Fallback: Other domains and extensions
+	const fallbackCandidates: Array<{ url: string; size: number }> = [];
 	for (const ext of exts.slice(1)) {
 		for (const domain of domains) {
 			for (const slug of slugs) {
 				for (const s of sizes) {
 					const dim = type === "video" ? `${s}x720` : `${s}x${s}`;
-					const url = `https://${domain}/images/${slug}/${dim}${ext}`;
-					const buffer = await fetchImageBuffer(url);
-					if (buffer && buffer.length > 500)
-						return { data: buffer, actualSize: s };
+					fallbackCandidates.push({
+						url: `https://${domain}/images/${slug}/${dim}${ext}`,
+						size: s,
+					});
 				}
 			}
 		}
 	}
-	return null;
+	const fallback = await tryCandidates(fallbackCandidates);
+	if (!fallback) {
+		missingImageCache.set(missKey, true);
+	}
+	return fallback;
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────

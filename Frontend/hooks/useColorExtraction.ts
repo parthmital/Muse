@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import useSWR from "swr";
+import { getExtractedColor } from "@/utils/images";
 
 interface ColorExtractionOptions {
 	/** Image source URL */
@@ -13,27 +14,22 @@ interface ColorExtractionOptions {
 	mode: "brighten" | "darken";
 }
 
-import { getExtractedColor } from "@/utils/images";
-
 export function useColorExtraction({
 	src,
 	mode,
 }: ColorExtractionOptions): string | null {
-	const [extractedColor, setExtractedColor] = useState<string | null>(null);
+	const { data } = useSWR(
+		src ? ["extracted-color", src, mode] : null,
+		([, imageSrc, adjustmentMode]) =>
+			getExtractedColor(
+				imageSrc as string,
+				adjustmentMode as "brighten" | "darken",
+			),
+		{
+			revalidateOnFocus: false,
+			revalidateOnReconnect: false,
+		},
+	);
 
-	useEffect(() => {
-		if (!src) {
-			setExtractedColor(null);
-			return;
-		}
-
-		// Use the centralized utility for color extraction
-		getExtractedColor(src, mode)
-			.then((color) => {
-				setExtractedColor(color);
-			})
-			.catch(() => setExtractedColor(null));
-	}, [src, mode]);
-
-	return extractedColor;
+	return data ?? null;
 }

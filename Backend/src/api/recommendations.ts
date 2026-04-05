@@ -24,11 +24,29 @@ const SURFACES = [
 	"albums_for_you",
 ] as const;
 
+type HomepageShelfItem = {
+	id: string | number;
+	title: string;
+	tidalId: string | number;
+	imageUrl: string | null;
+	type: string;
+	artist?: string | null;
+	songs?: number;
+};
+
+type HomepageShelf = {
+	title: string;
+	type: string;
+	items: HomepageShelfItem[];
+};
+
 function totalShelfItems(shelves: Array<{ items: unknown[] }>): number {
 	return shelves.reduce((sum, shelf) => sum + shelf.items.length, 0);
 }
 
-async function buildExternalFallbackShelves(req: any) {
+async function buildExternalFallbackShelves(
+	req: any,
+): Promise<HomepageShelf[]> {
 	const [trackRes, albumRes, artistRes] = await Promise.allSettled([
 		hifiClient.searchTracks("trending", 10),
 		hifiClient.searchAlbums("new releases", 10),
@@ -101,7 +119,7 @@ async function buildExternalFallbackShelves(req: any) {
 	];
 }
 
-function buildStaticFallbackShelves() {
+function buildStaticFallbackShelves(): HomepageShelf[] {
 	return [
 		{
 			title: "Get Started",
@@ -223,6 +241,10 @@ export async function recommendationRoutes(app: FastifyInstance) {
 	app.get<{ Params: { userId: string } }>(
 		"/users/:userId/homepage",
 		async (req, reply) => {
+			reply.header(
+				"Cache-Control",
+				"private, max-age=15, stale-while-revalidate=60",
+			);
 			const user = resolveUser(req.params.userId);
 			if (!user) return reply.status(404).send({ error: "User not found" });
 
@@ -246,7 +268,7 @@ export async function recommendationRoutes(app: FastifyInstance) {
 					"users/:userId/homepage source counts",
 				);
 
-				let shelves = [
+				let shelves: HomepageShelf[] = [
 					{
 						title: "Made For You",
 						type: "tracks",

@@ -12,6 +12,8 @@ import { logger } from "@/lib/logger";
 export const API_BASE =
 	process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
 
+const inflightGetRequests = new Map<string, Promise<unknown>>();
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface TidalTrack {
@@ -138,43 +140,67 @@ export interface HomeShelf {
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 	const url = `${API_BASE}${path}`;
-	let res: Response;
-	try {
-		res = await fetch(url, {
-			...init,
-			headers: {
-				"Content-Type": "application/json",
-				...init?.headers,
-			},
-		});
-	} catch (error) {
-		logger.error("apiFetch", "Network failure while calling backend", error, {
-			url,
-			method: init?.method ?? "GET",
-		});
-		throw error;
+	const method = (init?.method ?? "GET").toUpperCase();
+	const isGet = method === "GET" && !init?.body;
+	const requestKey = isGet ? url : null;
+
+	if (requestKey) {
+		const inflight = inflightGetRequests.get(requestKey);
+		if (inflight) {
+			return inflight as Promise<T>;
+		}
 	}
 
-	if (!res.ok) {
-		const body = await res.json().catch(() => ({}));
-		logger.warn("apiFetch", "Backend returned non-OK response", {
-			url,
-			method: init?.method ?? "GET",
-			status: res.status,
-			statusText: res.statusText,
-			body,
-		});
-		throw new ApiError(res.status, body.error ?? res.statusText, body);
+	const requestPromise = (async () => {
+		let res: Response;
+		try {
+			res = await fetch(url, {
+				...init,
+				headers: {
+					"Content-Type": "application/json",
+					...init?.headers,
+				},
+			});
+		} catch (error) {
+			logger.error("apiFetch", "Network failure while calling backend", error, {
+				url,
+				method,
+			});
+			throw error;
+		}
+
+		if (!res.ok) {
+			const body = await res.json().catch(() => ({}));
+			logger.warn("apiFetch", "Backend returned non-OK response", {
+				url,
+				method,
+				status: res.status,
+				statusText: res.statusText,
+				body,
+			});
+			throw new ApiError(res.status, body.error ?? res.statusText, body);
+		}
+
+		try {
+			return (await res.json()) as T;
+		} catch (error) {
+			logger.error("apiFetch", "Failed to parse backend JSON response", error, {
+				url,
+				method,
+			});
+			throw error;
+		}
+	})();
+
+	if (!requestKey) {
+		return requestPromise;
 	}
 
+	inflightGetRequests.set(requestKey, requestPromise);
 	try {
-		return (await res.json()) as T;
-	} catch (error) {
-		logger.error("apiFetch", "Failed to parse backend JSON response", error, {
-			url,
-			method: init?.method ?? "GET",
-		});
-		throw error;
+		return (await requestPromise) as T;
+	} finally {
+		inflightGetRequests.delete(requestKey);
 	}
 }
 
@@ -191,7 +217,12 @@ export class ApiError extends Error {
 
 // ── SWR fetcher (single export for reuse) ────────────────────────────────────
 
-export const swrFetcher = (url: string) => fetch(url).then((r) => r.json());
+export const swrFetcher = (pathOrUrl: string) => {
+	if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+		return fetch(pathOrUrl).then((r) => r.json());
+	}
+	return apiFetch(pathOrUrl);
+};
 
 // ── Search ───────────────────────────────────────────────────────────────────
 

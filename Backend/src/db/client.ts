@@ -15,7 +15,7 @@ import { setDbInstance, toJson, fromJson } from "./helpers.js";
 // Re-export helpers so existing imports keep working
 export { toJson, fromJson } from "./helpers.js";
 
-function openDb(): Database.Database {
+function openDb(): Database {
 	mkdirSync(dirname(config.sqlitePath), { recursive: true });
 
 	const sqlite = new Database(config.sqlitePath);
@@ -37,7 +37,7 @@ const sqlite = openDb();
 setDbInstance(sqlite);
 
 // Export the raw sqlite instance for direct queries
-export const db: Database.Database = sqlite;
+export const db: Database = sqlite;
 
 // ── Migrations ─────────────────────────────────────────────────────────────────
 export function runMigrations() {
@@ -135,6 +135,8 @@ export function runMigrations() {
 		CREATE INDEX IF NOT EXISTS ui_user_idx ON user_interactions(user_id);
 		CREATE INDEX IF NOT EXISTS ui_track_idx ON user_interactions(track_id);
 		CREATE INDEX IF NOT EXISTS ui_occurred_idx ON user_interactions(occurred_at);
+		CREATE INDEX IF NOT EXISTS ui_user_event_time_idx ON user_interactions(user_id, event_type, occurred_at);
+		CREATE INDEX IF NOT EXISTS ui_user_artist_idx ON user_interactions(user_id, artist_id);
 
 		CREATE TABLE IF NOT EXISTS user_profiles (
 			user_id TEXT PRIMARY KEY REFERENCES users(id),
@@ -194,6 +196,7 @@ export function runMigrations() {
 		);
 		CREATE INDEX IF NOT EXISTS user_library_idx ON user_library(user_id, item_type, item_id);
 		CREATE UNIQUE INDEX IF NOT EXISTS user_library_unique ON user_library(user_id, item_type, item_id);
+		CREATE INDEX IF NOT EXISTS user_library_user_type_idx ON user_library(user_id, item_type);
 
 		CREATE TABLE IF NOT EXISTS playlists (
 			id TEXT PRIMARY KEY,
@@ -213,6 +216,9 @@ export function runMigrations() {
 			added_at INTEGER DEFAULT (unixepoch())
 		);
 		CREATE INDEX IF NOT EXISTS playlist_track_idx ON playlist_tracks(playlist_id, position);
+		CREATE INDEX IF NOT EXISTS tracks_album_idx ON tracks(album_id);
+		CREATE INDEX IF NOT EXISTS tracks_artist_idx ON tracks(artist_id);
+		CREATE INDEX IF NOT EXISTS tf_genre_idx ON track_features(genre);
 
 		CREATE TABLE IF NOT EXISTS search_history (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

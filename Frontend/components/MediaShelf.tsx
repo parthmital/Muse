@@ -23,8 +23,11 @@ export function MediaShelf({ title, items, titleClassName }: MediaShelfProps) {
 			/>
 			<ScrollContainer ref={scrollRef}>
 				{items.length > 0 ? (
-					items.map((item, index) => (
-						<MediaCard key={`${item.title}-${index}`} item={item} />
+					items.map((item) => (
+						<MediaCard
+							key={`${item.type ?? "media"}-${String(item.tidalId ?? item.title)}`}
+							item={item}
+						/>
 					))
 				) : (
 					<div className="flex w-full items-center justify-center rounded-lg border border-dashed border-neutral-800 p-8">

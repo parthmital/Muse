@@ -7,13 +7,13 @@
 import Database from "better-sqlite3";
 
 // The raw sqlite instance is set by db/client.ts at startup
-let _db: Database.Database;
+let _db: Database;
 
-export function setDbInstance(db: Database.Database) {
+export function setDbInstance(db: Database) {
 	_db = db;
 }
 
-export function getDb(): Database.Database {
+export function getDb(): Database {
 	if (!_db) throw new Error("Database not initialized");
 	return _db;
 }

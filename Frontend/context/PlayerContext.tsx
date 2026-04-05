@@ -7,6 +7,7 @@ import React, {
 	useRef,
 	useEffect,
 	useCallback,
+	useMemo,
 } from "react";
 import { Song } from "@/components/SongRow";
 import { getStreamInfo } from "@/lib/api";
@@ -55,6 +56,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
 	const audioRef = useRef<HTMLAudioElement | null>(null);
 	const dashPlayerRef = useRef<MediaPlayerClass | null>(null);
+	const progressRafRef = useRef<number | null>(null);
+	const blobUrlRef = useRef<string | null>(null);
+	const latestTimeRef = useRef(0);
 
 	const playTrackInternal = useCallback(async (track: Song) => {
 		if (!audioRef.current) return;
@@ -94,9 +98,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 				manifest &&
 				dashPlayer
 			) {
+				if (blobUrlRef.current) {
+					URL.revokeObjectURL(blobUrlRef.current);
+					blobUrlRef.current = null;
+				}
 				const decoded = atob(manifest);
 				const blob = new Blob([decoded], { type: "application/dash+xml" });
 				const blobUrl = URL.createObjectURL(blob);
+				blobUrlRef.current = blobUrl;
 				dashPlayer.initialize(audio, blobUrl, true);
 			} else if (streamUrl) {
 				audio.src = streamUrl;
@@ -200,7 +209,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		audioRef.current = new Audio();
 		const audio = audioRef.current;
 
-		const handleTimeUpdate = () => setProgress(audio.currentTime);
+		const handleTimeUpdate = () => {
+			latestTimeRef.current = audio.currentTime;
+			if (progressRafRef.current !== null) return;
+
+			progressRafRef.current = window.requestAnimationFrame(() => {
+				progressRafRef.current = null;
+				setProgress(latestTimeRef.current);
+			});
+		};
 		const handleLoadedMetadata = () => setDuration(audio.duration);
 		const handleEnded = () => skipToNext();
 
@@ -219,6 +236,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			audio.removeEventListener("timeupdate", handleTimeUpdate);
 			audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
 			audio.removeEventListener("ended", handleEnded);
+			if (progressRafRef.current !== null) {
+				window.cancelAnimationFrame(progressRafRef.current);
+				progressRafRef.current = null;
+			}
+			if (blobUrlRef.current) {
+				URL.revokeObjectURL(blobUrlRef.current);
+				blobUrlRef.current = null;
+			}
 			audio.pause();
 			if (dashPlayerRef.current) dashPlayerRef.current.destroy();
 		};
@@ -288,27 +313,50 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		setVolumeState(vol);
 	}, []);
 
-	const value = {
-		currentTrack,
-		isPlaying,
-		progress,
-		duration,
-		volume,
-		audioQuality,
-		isShuffled,
-		repeatMode,
-		playTrack,
-		togglePlay,
-		seek,
-		setVolume,
-		addToQueue,
-		playNext: playNextFn,
-		playPlaylist,
-		skipToNext,
-		skipToPrev,
-		toggleShuffle,
-		toggleRepeat,
-	};
+	const value = useMemo(
+		() => ({
+			currentTrack,
+			isPlaying,
+			progress,
+			duration,
+			volume,
+			audioQuality,
+			isShuffled,
+			repeatMode,
+			playTrack,
+			togglePlay,
+			seek,
+			setVolume,
+			addToQueue,
+			playNext: playNextFn,
+			playPlaylist,
+			skipToNext,
+			skipToPrev,
+			toggleShuffle,
+			toggleRepeat,
+		}),
+		[
+			currentTrack,
+			isPlaying,
+			progress,
+			duration,
+			volume,
+			audioQuality,
+			isShuffled,
+			repeatMode,
+			playTrack,
+			togglePlay,
+			seek,
+			setVolume,
+			addToQueue,
+			playNextFn,
+			playPlaylist,
+			skipToNext,
+			skipToPrev,
+			toggleShuffle,
+			toggleRepeat,
+		],
+	);
 
 	return (
 		<PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>

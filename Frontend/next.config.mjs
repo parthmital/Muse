@@ -2,8 +2,20 @@
 const nextConfig = {
 	reactCompiler: true,
 	images: {
-		unoptimized: true,
+		dangerouslyAllowLocalIP: true,
 		remotePatterns: [
+			{
+				protocol: "http",
+				hostname: "localhost",
+				port: "5000",
+				pathname: "/tidal/images/**",
+			},
+			{
+				protocol: "http",
+				hostname: "127.0.0.1",
+				port: "5000",
+				pathname: "/tidal/images/**",
+			},
 			{
 				protocol: "https",
 				hostname: "resources.tidal.com",

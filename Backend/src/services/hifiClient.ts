@@ -157,6 +157,7 @@ class HifiClient {
 	private http: AxiosInstance;
 	private instances: any = DEFAULT_INSTANCES;
 	private lastDiscovery = 0;
+	private circuitOpenUntil = new Map<string, number>();
 
 	constructor() {
 		const baseURL = config.tidalApiBaseUrl || "http://localhost:9000";
@@ -171,6 +172,10 @@ class HifiClient {
 			cfg._retries = (cfg._retries ?? 0) + 1;
 
 			if (cfg._retries > 5) throw err;
+			await delay(
+				Math.min(1500, 200 * 2 ** (cfg._retries - 1)) +
+					Math.floor(Math.random() * 100),
+			);
 
 			// Proactively refresh instances if old
 			if (Date.now() - this.lastDiscovery > 15 * 60 * 1000) {
@@ -180,8 +185,13 @@ class HifiClient {
 			// Pick a new instance for retry if the current one failed (5xx or timeout)
 			if (!err.response || err.response.status >= 500) {
 				const type = cfg.url?.includes("/track") ? "streaming" : "api";
-				const pool = this.instances[type] || this.instances.api;
-				const nextInstance = pool[Math.floor(Math.random() * pool.length)];
+				const currentBaseUrl = String(
+					cfg.baseURL ?? this.http.defaults.baseURL ?? "",
+				);
+				if (currentBaseUrl) {
+					this.circuitOpenUntil.set(currentBaseUrl, Date.now() + 60_000);
+				}
+				const nextInstance = this.pickHealthyInstance(type);
 
 				if (nextInstance) {
 					cfg.baseURL = nextInstance.url;
@@ -191,6 +201,20 @@ class HifiClient {
 
 			throw err;
 		});
+	}
+
+	private pickHealthyInstance(type: "api" | "streaming") {
+		const pool = (this.instances[type] || this.instances.api) as Array<{
+			url: string;
+		}>;
+		if (!pool.length) return null;
+		const now = Date.now();
+		const healthy = pool.filter((instance) => {
+			const openUntil = this.circuitOpenUntil.get(instance.url) ?? 0;
+			return openUntil <= now;
+		});
+		const candidates = healthy.length ? healthy : pool;
+		return candidates[Math.floor(Math.random() * candidates.length)];
 	}
 
 	private async discoverInstances() {

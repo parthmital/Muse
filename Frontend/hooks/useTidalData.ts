@@ -7,7 +7,8 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
+import useSWR from "swr";
 import {
 	getAlbum,
 	getArtist,
@@ -15,161 +16,112 @@ import {
 	getMix,
 	getRecommendations,
 	getStreamInfo,
-	type TidalTrack,
-	type TidalAlbum,
-	type TidalArtist,
 	type StreamInfo,
 } from "@/lib/api";
 
 // ── Album ────────────────────────────────────────────────────────────────────
 
 export function useTidalAlbum(albumId: number | null) {
-	const [album, setAlbum] = useState<TidalAlbum | null>(null);
-	const [tracks, setTracks] = useState<TidalTrack[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const { data, error, isLoading } = useSWR(
+		albumId ? ["tidal-album", albumId] : null,
+		([, id]) => getAlbum(id),
+		{ revalidateOnFocus: false },
+	);
 
-	useEffect(() => {
-		if (!albumId) return;
-		setIsLoading(true);
-		setError(null);
-
-		getAlbum(albumId)
-			.then((res) => {
-				setAlbum(res.album);
-				setTracks(res.tracks);
-			})
-			.catch((err) => setError(err.message))
-			.finally(() => setIsLoading(false));
-	}, [albumId]);
-
-	return { album, tracks, isLoading, error };
+	return {
+		album: data?.album ?? null,
+		tracks: data?.tracks ?? [],
+		isLoading,
+		error: error?.message ?? null,
+	};
 }
 
 // ── Artist ───────────────────────────────────────────────────────────────────
 
 export function useTidalArtist(artistId: number | null) {
-	const [artist, setArtist] = useState<TidalArtist | null>(null);
-	const [cover, setCover] = useState<string | null>(null);
-	const [albums, setAlbums] = useState<TidalAlbum[]>([]);
-	const [topTracks, setTopTracks] = useState<TidalTrack[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const { data, error, isLoading } = useSWR(
+		artistId ? ["tidal-artist", artistId] : null,
+		([, id]) => getArtist(id),
+		{ revalidateOnFocus: false },
+	);
 
-	useEffect(() => {
-		if (!artistId) return;
-		setIsLoading(true);
-		setError(null);
-
-		getArtist(artistId)
-			.then((res) => {
-				setArtist(res.artist);
-				setCover(res.cover?.["750"] ?? null);
-				setAlbums(res.albums);
-				setTopTracks(res.topTracks);
-			})
-			.catch((err) => setError(err.message))
-			.finally(() => setIsLoading(false));
-	}, [artistId]);
-
-	return { artist, cover, albums, topTracks, isLoading, error };
+	return {
+		artist: data?.artist ?? null,
+		cover: data?.cover?.["750"] ?? null,
+		albums: data?.albums ?? [],
+		topTracks: data?.topTracks ?? [],
+		isLoading,
+		error: error?.message ?? null,
+	};
 }
 
 // ── Playlist ─────────────────────────────────────────────────────────────────
 
 export function useTidalPlaylist(playlistId: string | null) {
-	const [playlist, setPlaylist] = useState<any>(null);
-	const [tracks, setTracks] = useState<TidalTrack[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const { data, error, isLoading } = useSWR(
+		playlistId ? ["tidal-playlist", playlistId] : null,
+		([, id]) => getPlaylist(id),
+		{ revalidateOnFocus: false },
+	);
 
-	useEffect(() => {
-		if (!playlistId) return;
-		setIsLoading(true);
-		setError(null);
-
-		getPlaylist(playlistId)
-			.then((res) => {
-				setPlaylist(res.playlist);
-				setTracks(res.tracks);
-			})
-			.catch((err) => setError(err.message))
-			.finally(() => setIsLoading(false));
-	}, [playlistId]);
-
-	return { playlist, tracks, isLoading, error };
+	return {
+		playlist: data?.playlist ?? null,
+		tracks: data?.tracks ?? [],
+		isLoading,
+		error: error?.message ?? null,
+	};
 }
 
 // ── Mix ──────────────────────────────────────────────────────────────────────
 
 export function useTidalMix(mixId: string | null) {
-	const [mix, setMix] = useState<any>(null);
-	const [tracks, setTracks] = useState<TidalTrack[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const { data, error, isLoading } = useSWR(
+		mixId ? ["tidal-mix", mixId] : null,
+		([, id]) => getMix(id),
+		{ revalidateOnFocus: false },
+	);
 
-	useEffect(() => {
-		if (!mixId) return;
-		setIsLoading(true);
-		setError(null);
-
-		getMix(mixId)
-			.then((res) => {
-				setMix(res.mix);
-				setTracks(res.tracks);
-			})
-			.catch((err) => setError(err.message))
-			.finally(() => setIsLoading(false));
-	}, [mixId]);
-
-	return { mix, tracks, isLoading, error };
+	return {
+		mix: data?.mix ?? null,
+		tracks: data?.tracks ?? [],
+		isLoading,
+		error: error?.message ?? null,
+	};
 }
 
 // ── Recommendations ──────────────────────────────────────────────────────────
 
 export function useTidalRecommendations(trackId: number | null) {
-	const [items, setItems] = useState<TidalTrack[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const { data, error, isLoading, mutate } = useSWR(
+		trackId ? ["tidal-recommendations", trackId] : null,
+		([, id]) => getRecommendations(id),
+		{ revalidateOnFocus: false },
+	);
 
 	const refresh = useCallback(() => {
-		if (!trackId) return;
-		setIsLoading(true);
-		setError(null);
+		void mutate();
+	}, [mutate]);
 
-		getRecommendations(trackId)
-			.then((res) => setItems(res.items))
-			.catch((err) => setError(err.message))
-			.finally(() => setIsLoading(false));
-	}, [trackId]);
-
-	useEffect(() => {
-		refresh();
-	}, [refresh]);
-
-	return { items, isLoading, error, refresh };
+	return {
+		items: data?.items ?? [],
+		isLoading,
+		error: error?.message ?? null,
+		refresh,
+	};
 }
 
 // ── Stream URL ───────────────────────────────────────────────────────────────
 
 export function useTidalStream(trackId: number | null, quality?: string) {
-	const [stream, setStream] = useState<StreamInfo | null>(null);
-	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const { data, error, isLoading } = useSWR(
+		trackId ? ["tidal-stream", trackId, quality ?? "auto"] : null,
+		([, id, q]) => getStreamInfo(id, q === "auto" ? undefined : q),
+		{ revalidateOnFocus: false },
+	);
 
-	useEffect(() => {
-		if (!trackId) {
-			setStream(null);
-			return;
-		}
-		setIsLoading(true);
-		setError(null);
-
-		getStreamInfo(trackId, quality)
-			.then(setStream)
-			.catch((err) => setError(err.message))
-			.finally(() => setIsLoading(false));
-	}, [trackId, quality]);
-
-	return { stream, isLoading, error };
+	return {
+		stream: (data as StreamInfo | undefined) ?? null,
+		isLoading,
+		error: error?.message ?? null,
+	};
 }
