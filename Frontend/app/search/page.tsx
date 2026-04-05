@@ -36,7 +36,11 @@ function CategoryRow({ title, items }: { title: string; items: string[] }) {
 			/>
 			<ScrollContainer ref={scrollRef}>
 				{items.map((item, index) => (
-					<CategoryCard key={`${item}-${index}`} title={item} />
+					<CategoryCard
+						key={`${item}-${index}`}
+						title={item}
+						disableHoverZoom
+					/>
 				))}
 			</ScrollContainer>
 		</div>

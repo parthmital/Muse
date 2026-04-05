@@ -22,8 +22,8 @@ import {
 } from "../cache/tidalCache.js";
 import axios from "axios";
 import { Jimp } from "jimp";
-import Vibrant from "node-vibrant";
 import pLimit from "p-limit";
+import { getDb } from "../db/helpers.js";
 
 // ── Quality Chain ────────────────────────────────────────────────────────────
 
@@ -215,6 +215,133 @@ function normalizeMix(raw: any) {
 	};
 }
 
+function normalizeImageField(value: string | null | undefined): string | null {
+	if (!value) return null;
+	if (
+		value.startsWith("http://") ||
+		value.startsWith("https://") ||
+		value.startsWith("/") ||
+		value.startsWith("blob:") ||
+		value.startsWith("assets/")
+	) {
+		return value;
+	}
+	return hifiClient.tidalImageUrl(value);
+}
+
+type LocalPlaylistData = {
+	playlist: {
+		id: string;
+		title: string;
+		description: string | null;
+		coverUrl: string | null;
+		numberOfTracks: number;
+		duration: number;
+	};
+	tracks: any[];
+};
+
+function localTrackToRaw(row: any) {
+	const artist =
+		row.artist_id != null
+			? {
+					id: Number(row.artist_id) || row.artist_id,
+					name: row.artist_name ?? "Unknown Artist",
+					picture: row.artist_picture ?? null,
+				}
+			: null;
+
+	const album =
+		row.album_id != null
+			? {
+					id: Number(row.album_id) || row.album_id,
+					title: row.album_title ?? "Unknown Album",
+					cover: row.album_cover ?? null,
+				}
+			: null;
+
+	return {
+		id: Number(row.track_id) || row.track_id,
+		title: row.track_title ?? "Unknown Track",
+		duration: row.duration ?? 0,
+		popularity: row.popularity ?? null,
+		explicit: !!row.explicit,
+		audioQuality: row.audio_quality ?? null,
+		isrc: row.isrc ?? null,
+		artist,
+		artists: artist ? [artist] : [],
+		album,
+		mixes: {},
+	};
+}
+
+function loadLocalPlaylist(
+	playlistId: string,
+	limit: number,
+	offset: number,
+): LocalPlaylistData | null {
+	const db = getDb();
+	const playlist = db
+		.prepare(
+			`SELECT p.id, p.title, p.description, p.cover_url
+			 FROM playlists p
+			 WHERE p.id = ?
+			 LIMIT 1`,
+		)
+		.get(playlistId) as
+		| { id: string; title: string; description: string | null; cover_url: string | null }
+		| undefined;
+
+	if (!playlist) return null;
+
+	const aggregate = db
+		.prepare(
+			`SELECT COUNT(*) as total, COALESCE(SUM(t.duration), 0) as duration
+			 FROM playlist_tracks pt
+			 LEFT JOIN tracks t ON t.id = pt.track_id
+			 WHERE pt.playlist_id = ?`,
+		)
+		.get(playlistId) as { total: number; duration: number };
+
+	const tracks = db
+		.prepare(
+			`SELECT
+				pt.track_id,
+				t.title as track_title,
+				t.duration,
+				t.popularity,
+				t.explicit,
+				t.audio_quality,
+				t.isrc,
+				t.artist_id,
+				t.album_id,
+				ar.name as artist_name,
+				ar.picture_url as artist_picture,
+				al.title as album_title,
+				al.cover_url as album_cover
+			FROM playlist_tracks pt
+			LEFT JOIN tracks t ON t.id = pt.track_id
+			LEFT JOIN artists ar ON ar.id = t.artist_id
+			LEFT JOIN albums al ON al.id = t.album_id
+			WHERE pt.playlist_id = ?
+			ORDER BY pt.position ASC
+			LIMIT ? OFFSET ?`,
+		)
+		.all(playlistId, limit, offset) as any[];
+
+	return {
+		playlist: {
+			id: playlist.id,
+			title: playlist.title,
+			description: playlist.description,
+			coverUrl: playlist.cover_url,
+			numberOfTracks: aggregate.total ?? tracks.length,
+			duration: aggregate.duration ?? 0,
+		},
+		tracks: tracks.map(localTrackToRaw),
+	};
+}
+
 // ── Color Helpers (deduplicated) ─────────────────────────────────────────────
 
 function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
@@ -271,34 +398,53 @@ function hslToHex(h: number, s: number, l: number): string {
 	return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
+function clamp(n: number, min: number, max: number): number {
+	return Math.min(max, Math.max(min, n));
+}
+
 function adjustColor(hex: string, mode: "brighten" | "darken"): string {
 	let r = parseInt(hex.slice(1, 3), 16);
 	let g = parseInt(hex.slice(3, 5), 16);
 	let b = parseInt(hex.slice(5, 7), 16);
 
-	if (mode === "brighten") {
-		if ((r + g + b) / 3 < 128) {
-			r = Math.min(255, r + 80);
-			g = Math.min(255, g + 80);
-			b = Math.min(255, b + 80);
-			return `rgb(${r}, ${g}, ${b})`;
-		}
-	} else if (mode === "darken") {
-		if ((r + g + b) / 3 > 128) {
-			r = Math.floor(r * 0.5);
-			g = Math.floor(g * 0.5);
-			b = Math.floor(b * 0.5);
-			return `rgb(${r}, ${g}, ${b})`;
-		}
-	}
-	return hex;
+	const [h, s0, l0] = rgbToHsl(r, g, b);
+	const s = clamp(s0 < 0.35 ? 0.45 : s0, 0.35, 0.9);
+	const l =
+		mode === "brighten"
+			? clamp(Math.max(l0, 0.58), 0.45, 0.78)
+			: clamp(Math.min(l0, 0.38), 0.2, 0.5);
+	return hslToHex(h, s, l);
 }
 
-async function extractVibrantColor(buffer: Buffer): Promise<string | null> {
+async function extractAverageColor(buffer: Buffer): Promise<string | null> {
 	try {
-		const palette = await Vibrant.from(buffer).getPalette();
-		const vibrant = palette.Vibrant || palette.Muted || palette.LightVibrant;
-		return vibrant ? vibrant.getHex() : null;
+		const image = await Jimp.read(buffer);
+		image.resize({ w: 64, h: 64 });
+		const { data } = image.bitmap;
+
+		let rs = 0;
+		let gs = 0;
+		let bs = 0;
+		let ws = 0;
+		for (let i = 0; i < data.length; i += 4) {
+			const alpha = data[i + 3] / 255;
+			if (alpha <= 0.05) continue;
+			rs += data[i] * alpha;
+			gs += data[i + 1] * alpha;
+			bs += data[i + 2] * alpha;
+			ws += alpha;
+		}
+		if (ws === 0) return null;
+
+		const r = Math.round(rs / ws);
+		const g = Math.round(gs / ws);
+		const b = Math.round(bs / ws);
+		const [h, s0, l0] = rgbToHsl(r, g, b);
+
+		// Make average color more vivid if it's too dull, and keep it visible on dark UI.
+		const s = clamp(s0 < 0.25 ? 0.5 : s0 * 1.15, 0.35, 0.92);
+		const l = clamp(l0 < 0.22 ? 0.3 : l0 > 0.78 ? 0.68 : l0, 0.24, 0.72);
+		return hslToHex(h, s, l);
 	} catch {
 		return null;
 	}
@@ -363,10 +509,15 @@ async function fetchTidalImage(
 	const slugs = buildSlugs(pictureId);
 	const domains = ["resources.tidal.com", "images.tidal.com"];
 	const exts = [".jpg", ".webp", ".png"];
-	const sizes = [
-		requestedSize,
-		...SUPPORTED_SIZES.filter((s) => s !== requestedSize),
-	];
+	const higherOrEqualSizes = SUPPORTED_SIZES.filter((s) => s >= requestedSize).sort(
+		(a, b) => b - a,
+	);
+	const lowerSizes = SUPPORTED_SIZES.filter((s) => s < requestedSize).sort(
+		(a, b) => b - a,
+	);
+	const sizes = Array.from(
+		new Set([requestedSize, ...higherOrEqualSizes, ...lowerSizes]),
+	);
 	const limit = pLimit(8);
 
 	const tryCandidates = async (
@@ -390,25 +541,25 @@ async function fetchTidalImage(
 		}
 	};
 
-	const primaryCandidates: Array<{ url: string; size: number }> = [];
-	for (const slug of slugs) {
-		for (const s of sizes) {
-			const dim = type === "video" ? `${s}x720` : `${s}x${s}`;
+	for (const s of sizes) {
+		const dim = type === "video" ? `${s}x720` : `${s}x${s}`;
+
+		// Prefer canonical TIDAL host + JPG at each size first.
+		const primaryCandidates: Array<{ url: string; size: number }> = [];
+		for (const slug of slugs) {
 			primaryCandidates.push({
 				url: `https://${domains[0]}/images/${slug}/${dim}${exts[0]}`,
 				size: s,
 			});
 		}
-	}
-	const primary = await tryCandidates(primaryCandidates);
-	if (primary) return primary;
+		const primary = await tryCandidates(primaryCandidates);
+		if (primary) return primary;
 
-	const fallbackCandidates: Array<{ url: string; size: number }> = [];
-	for (const ext of exts.slice(1)) {
-		for (const domain of domains) {
-			for (const slug of slugs) {
-				for (const s of sizes) {
-					const dim = type === "video" ? `${s}x720` : `${s}x${s}`;
+		// Then broaden extension/domain combinations for the same size.
+		const fallbackCandidates: Array<{ url: string; size: number }> = [];
+		for (const ext of exts.slice(1)) {
+			for (const domain of domains) {
+				for (const slug of slugs) {
 					fallbackCandidates.push({
 						url: `https://${domain}/images/${slug}/${dim}${ext}`,
 						size: s,
@@ -416,12 +567,12 @@ async function fetchTidalImage(
 				}
 			}
 		}
+		const fallback = await tryCandidates(fallbackCandidates);
+		if (fallback) return fallback;
 	}
-	const fallback = await tryCandidates(fallbackCandidates);
-	if (!fallback) {
-		missingImageCache.set(missKey, true);
-	}
-	return fallback;
+
+	missingImageCache.set(missKey, true);
+	return null;
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────
@@ -447,12 +598,13 @@ export async function tidalRoutes(app: FastifyInstance) {
 			const cacheKey = `${pictureId}:${type}`;
 
 			if (!colorCache.has(cacheKey)) {
-				const avgColor = await extractVibrantColor(buffer);
+				const avgColor = await extractAverageColor(buffer);
 				if (avgColor) colorCache.set(cacheKey, avgColor);
 			}
 
 			reply.header("Content-Type", "image/jpeg");
 			reply.header("Cache-Control", "public, max-age=31536000, immutable");
+			reply.header("X-Image-Size", String(actualSize));
 			if (colorCache.has(cacheKey)) {
 				reply.header("X-Extracted-Color", colorCache.get(cacheKey)!);
 			}
@@ -482,7 +634,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 					type,
 				);
 				if (result) {
-					color = await extractVibrantColor(result.data);
+					color = await extractAverageColor(result.data);
 					if (color) colorCache.set(cacheKey, color);
 				}
 			} catch {
@@ -821,6 +973,27 @@ export async function tidalRoutes(app: FastifyInstance) {
 		const { playlistId } = req.params;
 		const limit = req.query.limit ? parseInt(req.query.limit, 10) : 100;
 		const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
+
+		const local = loadLocalPlaylist(playlistId, limit, offset);
+		if (local) {
+			return {
+				playlist: {
+					id: local.playlist.id,
+					title: local.playlist.title,
+					description: local.playlist.description ?? "",
+					numberOfTracks: local.playlist.numberOfTracks,
+					duration: local.playlist.duration,
+					image: normalizeImageField(local.playlist.coverUrl),
+					url: null,
+					creator: {
+						name: "Muse",
+						picture: null,
+					},
+				},
+				tracks: local.tracks.map(normalizeTrack).filter(Boolean),
+			};
+		}
+
 		const cacheK = `${playlistId}:${limit}:${offset}`;
 		const cached = playlistCache.get(cacheK);
 		if (cached) return cached;
@@ -852,6 +1025,20 @@ export async function tidalRoutes(app: FastifyInstance) {
 		"/tidal/mixes/:mixId",
 		async (req, reply) => {
 			const { mixId } = req.params;
+
+			const local = loadLocalPlaylist(mixId, 100, 0);
+			if (local) {
+				return {
+					mix: {
+						id: mixId,
+						title: local.playlist.title,
+						subTitle: local.playlist.description ?? "System generated mix",
+						cover: normalizeImageField(local.playlist.coverUrl),
+					},
+					tracks: local.tracks.map(normalizeTrack).filter(Boolean),
+				};
+			}
+
 			const cached = mixCache.get(mixId);
 			if (cached) return cached;
 			try {

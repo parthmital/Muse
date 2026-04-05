@@ -9,9 +9,15 @@ interface MediaShelfProps {
 	title: string;
 	items: MediaItem[];
 	titleClassName?: string;
+	disableHoverTransitions?: boolean;
 }
 
-export function MediaShelf({ title, items, titleClassName }: MediaShelfProps) {
+export function MediaShelf({
+	title,
+	items,
+	titleClassName,
+	disableHoverTransitions = false,
+}: MediaShelfProps) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 
 	return (
@@ -27,6 +33,7 @@ export function MediaShelf({ title, items, titleClassName }: MediaShelfProps) {
 						<MediaCard
 							key={`${item.type ?? "media"}-${String(item.tidalId ?? item.title)}`}
 							item={item}
+							disableHoverTransitions={disableHoverTransitions}
 						/>
 					))
 				) : (

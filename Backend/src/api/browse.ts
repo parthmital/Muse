@@ -1,35 +1,45 @@
 import { FastifyInstance } from "fastify";
 import { getDb, fromJson } from "../db/helpers.js";
-import { hifiClient } from "../services/hifiClient.js";
+import {
+	buildDynamicSearchSections,
+	buildHomepageShelvesForExternalUser,
+} from "../services/homepageBuilder.js";
 
 export async function browseRoutes(app: FastifyInstance) {
 	const DEV_USER_ID = "dev-user-001";
 
 	app.get("/browse/search-sections", async () => {
-		const genres = [
-			"Pop",
-			"Hip-Hop",
-			"Rock",
-			"Electronic",
-			"R&B",
-			"Jazz",
-			"Classical",
-			"Indie",
-			"Metal",
-			"Country",
-			"Lo-Fi",
-			"Study",
-			"Workout",
+		return buildDynamicSearchSections();
+	});
+
+	app.get("/browse/search-sections/debug", async () => {
+		const sections = await buildDynamicSearchSections();
+		const expectedHeadings = [
+			"Discover",
+			"Genres",
+			"Mood & Activity",
+			"Themes & Collections",
 		];
 
+		const byTitle = new Map(
+			(sections.categories ?? []).map((section) => [section.title, section]),
+		);
+
+		const sectionChecks = expectedHeadings.map((title) => {
+			const section = byTitle.get(title);
+			const itemCount = section?.items?.length ?? 0;
+			return {
+				title,
+				headingPresent: !!section,
+				itemCount,
+				exactly10Ok: itemCount === 10,
+			};
+		});
+
 		return {
-			categories: [
-				{
-					title: "For You",
-					items: ["Made For You", "New Releases", "Charts", "Trending"],
-				},
-				{ title: "Genres & Moods", items: genres },
-			],
+			sectionChecks,
+			allExpectedHeadingsPresent: sectionChecks.every((s) => s.headingPresent),
+			allSectionsHaveExactly10: sectionChecks.every((s) => s.exactly10Ok),
 		};
 	});
 
@@ -97,89 +107,8 @@ export async function browseRoutes(app: FastifyInstance) {
 			"public, max-age=30, stale-while-revalidate=120",
 		);
 		try {
-			const [trackRes, albumRes, artistRes] = await Promise.allSettled([
-				hifiClient.searchTracks("trending", 10),
-				hifiClient.searchAlbums("new releases", 10),
-				hifiClient.searchArtists("popular", 8),
-			]);
-
-			const trending =
-				trackRes.status === "fulfilled" ? trackRes.value.items : [];
-			const albums =
-				albumRes.status === "fulfilled" ? albumRes.value.items : [];
-			const artists =
-				artistRes.status === "fulfilled"
-					? (artistRes.value.artists?.items ?? [])
-					: [];
-
-			if (trackRes.status === "rejected") {
-				req.log.warn(
-					{ error: trackRes.reason },
-					"browse/home: track source failed",
-				);
-			}
-			if (albumRes.status === "rejected") {
-				req.log.warn(
-					{ error: albumRes.reason },
-					"browse/home: album source failed",
-				);
-			}
-			if (artistRes.status === "rejected") {
-				req.log.warn(
-					{ error: artistRes.reason },
-					"browse/home: artist source failed",
-				);
-			}
-
-			req.log.info(
-				{
-					trendingCount: trending.length,
-					albumCount: albums.length,
-					artistCount: artists.length,
-				},
-				"browse/home source counts",
-			);
-
-			return {
-				shelves: [
-					{
-						title: "Trending Tracks",
-						type: "tracks",
-						items: trending.map((t) => ({
-							id: t.id,
-							title: t.album?.title ?? t.title,
-							artist: t.artist?.name ?? t.artists?.[0]?.name,
-							tidalId: t.album?.id ?? t.id,
-							imageUrl: hifiClient.tidalImageUrl(t.album?.cover),
-							type: "album",
-						})),
-					},
-					{
-						title: "Popular Artists",
-						type: "artists",
-						items: artists.map((a) => ({
-							id: a.id,
-							title: a.name,
-							tidalId: a.id,
-							imageUrl: hifiClient.tidalImageUrl(a.picture),
-							type: "artist",
-						})),
-					},
-					{
-						title: "New Albums",
-						type: "albums",
-						items: albums.map((al: any) => ({
-							id: al.id,
-							title: al.title,
-							artist: al.artist?.name ?? al.artists?.[0]?.name,
-							tidalId: al.id,
-							imageUrl: hifiClient.tidalImageUrl(al.cover),
-							type: "album",
-							songs: al.numberOfTracks,
-						})),
-					},
-				],
-			};
+			const homepage = await buildHomepageShelvesForExternalUser(DEV_USER_ID);
+			return { shelves: homepage.shelves };
 		} catch (error) {
 			req.log.error({ error }, "browse/home failed unexpectedly");
 			return { shelves: [] };

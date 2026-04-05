@@ -22,9 +22,13 @@ export interface MediaItem {
 
 interface MediaCardProps {
 	item: MediaItem;
+	disableHoverTransitions?: boolean;
 }
 
-export function MediaCard({ item }: MediaCardProps) {
+export function MediaCard({
+	item,
+	disableHoverTransitions = false,
+}: MediaCardProps) {
 	const inferredType = item.type || "mix";
 	const routeId =
 		item.tidalId !== undefined
@@ -91,7 +95,7 @@ export function MediaCard({ item }: MediaCardProps) {
 								</p>
 							) : (
 								<>
-									<div className="flex items-center justify-between">
+									<div className="flex items-center justify-between gap-2">
 										<p className="line-clamp-1 font-medium text-white">
 											{item.title}
 										</p>
@@ -121,7 +125,13 @@ export function MediaCard({ item }: MediaCardProps) {
 								className="rounded-full bg-black/60 backdrop-blur-md"
 							/>
 						)}
-						<div className="opacity-0 group-hover:opacity-100 transition-opacity">
+						<div
+							className={
+								disableHoverTransitions
+									? "opacity-100"
+									: "opacity-0 group-hover:opacity-100 transition-opacity"
+							}
+						>
 							<DynamicActionMenu
 								type={inferredType}
 								id={routeId}

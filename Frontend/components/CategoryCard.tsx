@@ -7,9 +7,13 @@ import { useColorExtraction } from "@/hooks/useColorExtraction";
 
 interface CategoryCardProps {
 	title: string;
+	disableHoverZoom?: boolean;
 }
 
-export function CategoryCard({ title }: CategoryCardProps) {
+export function CategoryCard({
+	title,
+	disableHoverZoom = false,
+}: CategoryCardProps) {
 	const extractedColor = useColorExtraction({
 		src: "",
 		mode: "darken",
@@ -19,7 +23,11 @@ export function CategoryCard({ title }: CategoryCardProps) {
 		<Link
 			href={`/search?q=${encodeURIComponent(title)}`}
 			style={{ "--bg-color": extractedColor || "#202020" } as CSSProperties}
-			className="relative h-44 w-44 shrink-0 block cursor-pointer overflow-hidden rounded-lg bg-(--bg-color) p-4 transition-transform hover:scale-105 active:scale-95"
+			className={
+				disableHoverZoom
+					? "relative h-44 w-44 shrink-0 block cursor-pointer overflow-hidden rounded-lg bg-(--bg-color) p-4"
+					: "relative h-44 w-44 shrink-0 block cursor-pointer overflow-hidden rounded-lg bg-(--bg-color) p-4 transition-transform hover:scale-105 active:scale-95"
+			}
 		>
 			<span className="text-xl font-bold text-white tracking-tight">
 				{title}

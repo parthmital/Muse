@@ -5,9 +5,14 @@ import { MediaCard, MediaItem } from "./MediaCard";
 interface MediaGridProps {
 	items: MediaItem[];
 	className?: string;
+	disableHoverTransitions?: boolean;
 }
 
-export function MediaGrid({ items, className = "" }: MediaGridProps) {
+export function MediaGrid({
+	items,
+	className = "",
+	disableHoverTransitions = false,
+}: MediaGridProps) {
 	if (items.length === 0) {
 		return (
 			<div className="flex w-full flex-col items-center justify-center py-20 text-center">
@@ -22,6 +27,7 @@ export function MediaGrid({ items, className = "" }: MediaGridProps) {
 				<MediaCard
 					key={`${item.type ?? "media"}-${String(item.tidalId ?? item.title)}`}
 					item={item}
+					disableHoverTransitions={disableHoverTransitions}
 				/>
 			))}
 		</div>
