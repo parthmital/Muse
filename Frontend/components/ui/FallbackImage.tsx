@@ -20,12 +20,12 @@ export function FallbackImage({
 }: FallbackImageProps) {
 	const [failedSrc, setFailedSrc] = useState<string | null>(null);
 	const didCurrentSrcFail = !!src && failedSrc === src;
+	const isFill = !!props.fill;
+	const resolvedSizes = isFill ? (props.sizes ?? "100vw") : props.sizes;
 
 	const fallbackSrc = `/icons/Name=${fallbackType}, Filled=No.svg`;
 
 	if (didCurrentSrcFail || !src) {
-		const isFill = !!props.fill;
-
 		return (
 			<div
 				className={`flex items-center justify-center overflow-hidden bg-neutral-900 ${
@@ -42,7 +42,10 @@ export function FallbackImage({
 					<Image
 						src={fallbackSrc}
 						alt={alt || fallbackType}
-						fill
+						fill={isFill}
+						width={isFill ? undefined : (props.width ?? 48)}
+						height={isFill ? undefined : (props.height ?? 48)}
+						sizes={resolvedSizes}
 						className="object-contain opacity-40 brightness-0 invert"
 					/>
 				</div>
@@ -55,6 +58,7 @@ export function FallbackImage({
 			{...props}
 			src={src}
 			alt={alt}
+			sizes={resolvedSizes}
 			className={className}
 			onError={() => {
 				logger.warn(

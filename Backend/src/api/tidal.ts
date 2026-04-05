@@ -289,7 +289,12 @@ function loadLocalPlaylist(
 			 LIMIT 1`,
 		)
 		.get(playlistId) as
-		| { id: string; title: string; description: string | null; cover_url: string | null }
+		| {
+				id: string;
+				title: string;
+				description: string | null;
+				cover_url: string | null;
+		  }
 		| undefined;
 
 	if (!playlist) return null;
@@ -509,9 +514,9 @@ async function fetchTidalImage(
 	const slugs = buildSlugs(pictureId);
 	const domains = ["resources.tidal.com", "images.tidal.com"];
 	const exts = [".jpg", ".webp", ".png"];
-	const higherOrEqualSizes = SUPPORTED_SIZES.filter((s) => s >= requestedSize).sort(
-		(a, b) => b - a,
-	);
+	const higherOrEqualSizes = SUPPORTED_SIZES.filter(
+		(s) => s >= requestedSize,
+	).sort((a, b) => b - a);
 	const lowerSizes = SUPPORTED_SIZES.filter((s) => s < requestedSize).sort(
 		(a, b) => b - a,
 	);

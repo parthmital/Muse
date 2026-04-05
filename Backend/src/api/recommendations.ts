@@ -195,9 +195,7 @@ export async function recommendationRoutes(app: FastifyInstance) {
 					generatedAt: homepage.generatedAt,
 					sectionChecks,
 					collectionChecks,
-					allSectionsHaveExactly10: sectionChecks.every(
-						(s) => s.exactly10Ok,
-					),
+					allSectionsHaveExactly10: sectionChecks.every((s) => s.exactly10Ok),
 					allCollectionsHave50: collectionChecks.every((c) => c.exactly50Ok),
 				};
 			} catch (error) {

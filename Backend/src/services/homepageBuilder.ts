@@ -1,7 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { getDb, resolveUser, fromJson, toJson, type UserRow } from "../db/helpers.js";
+import {
+	getDb,
+	resolveUser,
+	fromJson,
+	toJson,
+	type UserRow,
+} from "../db/helpers.js";
 import { hifiClient, type HifiTrack } from "./hifiClient.js";
-import { recommend, getAlbumsForYou, getFavouriteArtists } from "./recommender.js";
+import {
+	recommend,
+	getAlbumsForYou,
+	getFavouriteArtists,
+} from "./recommender.js";
 
 const SECTION_ITEM_COUNT = 10;
 const COLLECTION_TRACK_COUNT = 50;
@@ -81,7 +91,10 @@ function pickDominantArtistCover(
 	trackIds: string[],
 	poolById: Map<string, PoolTrack>,
 ): string | null {
-	const artistCounts = new Map<string, { count: number; imageUrl: string | null }>();
+	const artistCounts = new Map<
+		string,
+		{ count: number; imageUrl: string | null }
+	>();
 	for (const trackId of trackIds) {
 		const track = poolById.get(trackId);
 		if (!track?.artistId) continue;
@@ -116,7 +129,11 @@ function stableOffset(seed: string, modulo: number): number {
 	return modulo > 0 ? hash % modulo : 0;
 }
 
-function pickTrackIds(poolIds: string[], start: number, count: number): string[] {
+function pickTrackIds(
+	poolIds: string[],
+	start: number,
+	count: number,
+): string[] {
 	if (!poolIds.length) return [];
 	const picked: string[] = [];
 	const seen = new Set<string>();
@@ -139,7 +156,11 @@ function pickTrackIds(poolIds: string[], start: number, count: number): string[]
 	return picked;
 }
 
-function ensureCount<T>(items: T[], minCount: number, createItem: (i: number) => T): T[] {
+function ensureCount<T>(
+	items: T[],
+	minCount: number,
+	createItem: (i: number) => T,
+): T[] {
 	const out = items.slice(0, minCount);
 	for (let i = out.length; i < minCount; i++) {
 		out.push(createItem(i));
@@ -257,11 +278,15 @@ function getTracksByIdsOrdered(ids: string[]): PoolTrack[] {
 			WHERE t.id IN (${placeholders})`,
 		)
 		.all(...ids) as any[];
-	const byId = new Map(rows.map((row) => [String(row.track_id), toPoolTrack(row)]));
+	const byId = new Map(
+		rows.map((row) => [String(row.track_id), toPoolTrack(row)]),
+	);
 	return ids.map((id) => byId.get(id)).filter(Boolean) as PoolTrack[];
 }
 
-async function fetchExternalPopularTracks(minCount: number): Promise<PoolTrack[]> {
+async function fetchExternalPopularTracks(
+	minCount: number,
+): Promise<PoolTrack[]> {
 	const queries = ["trending", "top hits", "popular", "viral", "new music"];
 	const collected: HifiTrack[] = [];
 	for (const q of queries) {
@@ -274,11 +299,17 @@ async function fetchExternalPopularTracks(minCount: number): Promise<PoolTrack[]
 		}
 	}
 	upsertTracks(collected);
-	const ids = dedupeStrings(collected.map((t) => String(t.id))).slice(0, minCount * 2);
+	const ids = dedupeStrings(collected.map((t) => String(t.id))).slice(
+		0,
+		minCount * 2,
+	);
 	return getTracksByIdsOrdered(ids);
 }
 
-async function buildTrackPool(userId: string, minCount: number): Promise<PoolTrack[]> {
+async function buildTrackPool(
+	userId: string,
+	minCount: number,
+): Promise<PoolTrack[]> {
 	const db = getDb();
 	const poolById = new Map<string, PoolTrack>();
 
@@ -339,7 +370,10 @@ async function buildTrackPool(userId: string, minCount: number): Promise<PoolTra
 
 	// Absolute fallback for empty databases + external API failure.
 	const fallbackCount = Math.max(minCount, 60);
-	const fallbackIds = Array.from({ length: fallbackCount }, (_, i) => `sys-fallback-track-${i + 1}`);
+	const fallbackIds = Array.from(
+		{ length: fallbackCount },
+		(_, i) => `sys-fallback-track-${i + 1}`,
+	);
 	const insertTrack = db.prepare(
 		`INSERT OR IGNORE INTO tracks (id, title, popularity, explicit, created_at, updated_at)
 		 VALUES (?, ?, ?, 0, unixepoch(), unixepoch())`,
@@ -378,7 +412,9 @@ function persistSystemPlaylist(
 			cover_url = excluded.cover_url,
 			updated_at = excluded.updated_at`,
 	);
-	const clearTracks = db.prepare("DELETE FROM playlist_tracks WHERE playlist_id = ?");
+	const clearTracks = db.prepare(
+		"DELETE FROM playlist_tracks WHERE playlist_id = ?",
+	);
 	const insertTrack = db.prepare(
 		"INSERT INTO playlist_tracks (playlist_id, track_id, position, added_at) VALUES (?, ?, ?, unixepoch())",
 	);
@@ -419,14 +455,14 @@ async function getAlbumsSection(userId: string): Promise<HomepageShelfItem[]> {
 		const key = String(album.albumId);
 		if (seen.has(key)) continue;
 		seen.add(key);
-			items.push({
-				id: key,
-				tidalId: key,
-				title: album.title,
-				artist: album.artistName,
-				imageUrl: normalizeImageUrl(album.coverUrl ?? null),
-				type: "album",
-			});
+		items.push({
+			id: key,
+			tidalId: key,
+			title: album.title,
+			artist: album.artistName,
+			imageUrl: normalizeImageUrl(album.coverUrl ?? null),
+			type: "album",
+		});
 		if (items.length >= SECTION_ITEM_COUNT) return items;
 	}
 
@@ -447,14 +483,14 @@ async function getAlbumsSection(userId: string): Promise<HomepageShelfItem[]> {
 		const key = String(row.id);
 		if (seen.has(key)) continue;
 		seen.add(key);
-			items.push({
-				id: key,
-				tidalId: key,
-				title: row.title ?? "Unknown Album",
-				artist: row.artist_name ?? null,
-				imageUrl: normalizeImageUrl(row.cover_url ?? null),
-				type: "album",
-			});
+		items.push({
+			id: key,
+			tidalId: key,
+			title: row.title ?? "Unknown Album",
+			artist: row.artist_name ?? null,
+			imageUrl: normalizeImageUrl(row.cover_url ?? null),
+			type: "album",
+		});
 		if (items.length >= SECTION_ITEM_COUNT) return items;
 	}
 
@@ -500,13 +536,13 @@ async function getArtistsSection(userId: string): Promise<HomepageShelfItem[]> {
 		const key = String(artist.artistId);
 		if (seen.has(key)) continue;
 		seen.add(key);
-			items.push({
-				id: key,
-				tidalId: key,
-				title: artist.name,
-				imageUrl: normalizeImageUrl(artist.pictureUrl ?? null),
-				type: "artist",
-			});
+		items.push({
+			id: key,
+			tidalId: key,
+			title: artist.name,
+			imageUrl: normalizeImageUrl(artist.pictureUrl ?? null),
+			type: "artist",
+		});
 		if (items.length >= SECTION_ITEM_COUNT) return items;
 	}
 
@@ -519,13 +555,13 @@ async function getArtistsSection(userId: string): Promise<HomepageShelfItem[]> {
 		const key = String(row.id);
 		if (seen.has(key)) continue;
 		seen.add(key);
-			items.push({
-				id: key,
-				tidalId: key,
-				title: row.name ?? "Unknown Artist",
-				imageUrl: normalizeImageUrl(row.picture_url ?? null),
-				type: "artist",
-			});
+		items.push({
+			id: key,
+			tidalId: key,
+			title: row.name ?? "Unknown Artist",
+			imageUrl: normalizeImageUrl(row.picture_url ?? null),
+			type: "artist",
+		});
 		if (items.length >= SECTION_ITEM_COUNT) return items;
 	}
 
@@ -557,7 +593,9 @@ async function getArtistsSection(userId: string): Promise<HomepageShelfItem[]> {
 	}));
 }
 
-export async function buildHomepageShelvesForExternalUser(externalId: string): Promise<{
+export async function buildHomepageShelvesForExternalUser(
+	externalId: string,
+): Promise<{
 	userId: string;
 	generatedAt: number;
 	shelves: HomepageShelf[];
@@ -577,7 +615,11 @@ export async function buildHomepageShelvesForExternalUser(externalId: string): P
 		const artist = topArtists[i % topArtists.length];
 		const mixId = `sys-mix-${externalId}-${i + 1}`;
 		const mixTitle = buildMadeForYouTitle(artist, i);
-		const mixTrackIds = pickTrackIds(poolIds, baseOffset + i * 17, COLLECTION_TRACK_COUNT);
+		const mixTrackIds = pickTrackIds(
+			poolIds,
+			baseOffset + i * 17,
+			COLLECTION_TRACK_COUNT,
+		);
 		const mixCover =
 			pickDominantArtistCover(mixTrackIds, poolById) ??
 			poolById.get(mixTrackIds[0])?.coverUrl ??
@@ -642,13 +684,24 @@ export async function buildHomepageShelvesForExternalUser(externalId: string): P
 		shelves: [
 			{ title: "Made For You", type: "mixes", items: madeForYou },
 			{ title: "Recommended Stations", type: "playlists", items: stations },
-			{ title: "Albums For You", type: "albums", items: albums.slice(0, SECTION_ITEM_COUNT) },
-			{ title: "Featured Artists", type: "artists", items: artists.slice(0, SECTION_ITEM_COUNT) },
+			{
+				title: "Albums For You",
+				type: "albums",
+				items: albums.slice(0, SECTION_ITEM_COUNT),
+			},
+			{
+				title: "Featured Artists",
+				type: "artists",
+				items: artists.slice(0, SECTION_ITEM_COUNT),
+			},
 		],
 	};
 }
 
-function extractTopValuesFromJsonArrays(values: any[], limit: number): string[] {
+function extractTopValuesFromJsonArrays(
+	values: any[],
+	limit: number,
+): string[] {
 	const counts = new Map<string, number>();
 	for (const value of values) {
 		const arr = fromJson<string[]>(value, []);
@@ -678,7 +731,10 @@ export async function buildDynamicSearchSections(): Promise<{
 		)
 		.all() as Array<{ title: string }>;
 	const discoverItems = ensureCount(
-		dedupeStrings(discoverItemsRaw.map((r) => r.title)).slice(0, SECTION_ITEM_COUNT),
+		dedupeStrings(discoverItemsRaw.map((r) => r.title)).slice(
+			0,
+			SECTION_ITEM_COUNT,
+		),
 		SECTION_ITEM_COUNT,
 		(i) => `Discover Pick ${i + 1}`,
 	);
@@ -705,18 +761,22 @@ export async function buildDynamicSearchSections(): Promise<{
 		)
 		.all() as Array<{ mood_tags: string }>;
 	const moodItems = ensureCount(
-		extractTopValuesFromJsonArrays(moodRows.map((r) => r.mood_tags), SECTION_ITEM_COUNT),
+		extractTopValuesFromJsonArrays(
+			moodRows.map((r) => r.mood_tags),
+			SECTION_ITEM_COUNT,
+		),
 		SECTION_ITEM_COUNT,
 		(i) => `Mood ${i + 1}`,
 	);
 
 	const themeRows = db
-		.prepare(
-			"SELECT genres FROM artists WHERE genres IS NOT NULL LIMIT 400",
-		)
+		.prepare("SELECT genres FROM artists WHERE genres IS NOT NULL LIMIT 400")
 		.all() as Array<{ genres: string }>;
 	const themes = ensureCount(
-		extractTopValuesFromJsonArrays(themeRows.map((r) => r.genres), SECTION_ITEM_COUNT),
+		extractTopValuesFromJsonArrays(
+			themeRows.map((r) => r.genres),
+			SECTION_ITEM_COUNT,
+		),
 		SECTION_ITEM_COUNT,
 		(i) => `Collection ${i + 1}`,
 	);
@@ -725,8 +785,14 @@ export async function buildDynamicSearchSections(): Promise<{
 		categories: [
 			{ title: "Discover", items: discoverItems.slice(0, SECTION_ITEM_COUNT) },
 			{ title: "Genres", items: genres.slice(0, SECTION_ITEM_COUNT) },
-			{ title: "Mood & Activity", items: moodItems.slice(0, SECTION_ITEM_COUNT) },
-			{ title: "Themes & Collections", items: themes.slice(0, SECTION_ITEM_COUNT) },
+			{
+				title: "Mood & Activity",
+				items: moodItems.slice(0, SECTION_ITEM_COUNT),
+			},
+			{
+				title: "Themes & Collections",
+				items: themes.slice(0, SECTION_ITEM_COUNT),
+			},
 		],
 	};
 }
