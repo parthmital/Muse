@@ -55,32 +55,38 @@ export function ActionMenu({
 	const isOpen = isMenuOpen(menuId);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
+	const [menuBounds, setMenuBounds] = useState<{
+		maxWidth?: number;
+		maxHeight?: number;
+	}>({});
 	const [isPositioned, setIsPositioned] = useState(false);
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 	const initialCoordsRef = useRef<{ x: number; y: number } | null>(null);
+	const revealTimeoutRef = useRef<number | null>(null);
 
 	// Use explicit containerRef prop, or fall back to PageContainerContext
 	const pageContainerContext = useContext(PageContainerContext);
 	const effectiveContainerRef =
 		containerRef ?? pageContainerContext?.containerRef;
 
-	// Prevent scroll on underlying containers when menu is open
-	useEffect(() => {
-		const container = effectiveContainerRef?.current;
-		if (!container) return;
-
-		if (isOpen) {
-			container.style.overflow = "hidden";
-		} else {
-			container.style.overflow = "";
+	const resolveBoundsContainer = useCallback((): HTMLElement | null => {
+		if (effectiveContainerRef?.current) {
+			return effectiveContainerRef.current;
 		}
 
-		return () => {
-			container.style.overflow = "";
-		};
-	}, [isOpen, effectiveContainerRef]);
+		const nearestContainer = triggerRef.current?.closest(
+			"[data-page-container='true']",
+		) as HTMLElement | null;
+		if (nearestContainer) {
+			return nearestContainer;
+		}
+
+		return document.querySelector(
+			"[data-page-container='true']",
+		) as HTMLElement | null;
+	}, [effectiveContainerRef]);
 
 	useEffect(() => {
 		onOpenChange?.(isOpen);
@@ -101,7 +107,7 @@ export function ActionMenu({
 		if (!contentRef.current) return;
 
 		const contentRect = contentRef.current.getBoundingClientRect();
-		const container = effectiveContainerRef?.current;
+		const container = resolveBoundsContainer();
 		const containerRect = container?.getBoundingClientRect();
 
 		// Use container bounds if provided, otherwise viewport
@@ -116,6 +122,16 @@ export function ActionMenu({
 
 		const gap = 4;
 		const padding = 8;
+		const availableWidth = Math.max(
+			0,
+			bounds.right - bounds.left - padding * 2,
+		);
+		const availableHeight = Math.max(
+			0,
+			bounds.bottom - bounds.top - padding * 2,
+		);
+		const effectiveMenuWidth = Math.min(contentRect.width, availableWidth);
+		const effectiveMenuHeight = Math.min(contentRect.height, availableHeight);
 
 		let x = initialCoordsRef.current?.x ?? 0;
 		let y = initialCoordsRef.current?.y ?? 0;
@@ -168,17 +184,20 @@ export function ActionMenu({
 		// Clamp to PageContainer bounds (or viewport if no container)
 		x = Math.max(
 			bounds.left + padding,
-			Math.min(x, bounds.right - contentRect.width - padding),
+			Math.min(x, bounds.right - effectiveMenuWidth - padding),
 		);
 		y = Math.max(
 			bounds.top + padding,
-			Math.min(y, bounds.bottom - contentRect.height - padding),
+			Math.min(y, bounds.bottom - effectiveMenuHeight - padding),
 		);
 
+		setMenuBounds({
+			maxWidth: availableWidth,
+			maxHeight: availableHeight,
+		});
 		setCoords({ x, y });
 		setIsPositioned(true);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [align, placement]);
+	}, [align, placement, resolveBoundsContainer]);
 
 	useLayoutEffect(() => {
 		if (isOpen) {
@@ -201,6 +220,32 @@ export function ActionMenu({
 		} else {
 			setIsPositioned(false);
 		}
+	}, [isOpen, updatePosition]);
+
+	useLayoutEffect(() => {
+		if (!isOpen || !contentRef.current) return;
+
+		const observer = new ResizeObserver(() => {
+			setIsPositioned(false);
+			if (revealTimeoutRef.current !== null) {
+				window.clearTimeout(revealTimeoutRef.current);
+			}
+			revealTimeoutRef.current = window.setTimeout(() => {
+				requestAnimationFrame(() => {
+					updatePosition();
+				});
+			}, 40);
+		});
+
+		observer.observe(contentRef.current);
+
+		return () => {
+			observer.disconnect();
+			if (revealTimeoutRef.current !== null) {
+				window.clearTimeout(revealTimeoutRef.current);
+				revealTimeoutRef.current = null;
+			}
+		};
 	}, [isOpen, updatePosition]);
 
 	useEffect(() => {
@@ -283,6 +328,10 @@ export function ActionMenu({
 						position: "fixed",
 						top: coords?.y ?? 0,
 						left: coords?.x ?? 0,
+						maxWidth: menuBounds.maxWidth,
+						maxHeight: menuBounds.maxHeight,
+						overflowY: "auto",
+						overflowX: "hidden",
 						opacity: isPositioned ? 1 : 0,
 						visibility: isPositioned ? "visible" : "hidden",
 						pointerEvents: isPositioned ? "auto" : "none",

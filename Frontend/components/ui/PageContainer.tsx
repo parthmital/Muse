@@ -24,6 +24,7 @@ export function PageContainer({
 		<PageContainerContext.Provider value={{ containerRef }}>
 			<div
 				ref={containerRef}
+				data-page-container="true"
 				className={`scrollbar-hide relative flex grow flex-col gap-6 overflow-auto rounded-lg border border-neutral-800 p-6 ${className}`}
 			>
 				{children}
