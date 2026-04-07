@@ -21,7 +21,7 @@ export function FallbackImage({
 	const [failedSrc, setFailedSrc] = useState<string | null>(null);
 	const didCurrentSrcFail = !!src && failedSrc === src;
 	const isFill = !!props.fill;
-	const resolvedSizes = isFill ? (props.sizes ?? "100vw") : props.sizes;
+	const resolvedSizes = props.sizes;
 
 	const fallbackSrc = `/icons/Name=${fallbackType}, Filled=No.svg`;
 

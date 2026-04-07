@@ -22,6 +22,7 @@ export function ArtistSidebar({
 						src={artistPicture || ""}
 						alt="Bio"
 						fill
+						sizes="320px"
 						className="object-cover"
 						fallbackType="Artist"
 					/>

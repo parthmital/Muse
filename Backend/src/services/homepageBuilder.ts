@@ -12,6 +12,11 @@ import {
 	getAlbumsForYou,
 	getFavouriteArtists,
 } from "./recommender.js";
+import {
+	fetchTrendingTracksFallback,
+	fetchPopularArtistsFallback,
+	fetchPopularAlbumsFallback,
+} from "./popularityService.js";
 
 const SECTION_ITEM_COUNT = 10;
 const COLLECTION_TRACK_COUNT = 50;
@@ -287,19 +292,12 @@ function getTracksByIdsOrdered(ids: string[]): PoolTrack[] {
 async function fetchExternalPopularTracks(
 	minCount: number,
 ): Promise<PoolTrack[]> {
-	const queries = ["trending", "top hits", "popular", "viral", "new music"];
-	const collected: HifiTrack[] = [];
-	for (const q of queries) {
-		try {
-			const result = await hifiClient.searchTracks(q, 100, 0);
-			collected.push(...(result.items ?? []));
-			if (collected.length >= minCount * 2) break;
-		} catch {
-			// Continue trying next query
-		}
-	}
-	upsertTracks(collected);
-	const ids = dedupeStrings(collected.map((t) => String(t.id))).slice(
+	// Use Last.fm for real trending data instead of keyword searches
+	const tracks = await fetchTrendingTracksFallback(minCount * 2);
+	if (!tracks.length) return [];
+
+	upsertTracks(tracks);
+	const ids = dedupeStrings(tracks.map((t) => String(t.id))).slice(
 		0,
 		minCount * 2,
 	);
@@ -494,9 +492,12 @@ async function getAlbumsSection(userId: string): Promise<HomepageShelfItem[]> {
 		if (items.length >= SECTION_ITEM_COUNT) return items;
 	}
 
+	// Use Last.fm for real popular albums instead of keyword search
 	try {
-		const external = await hifiClient.searchAlbums("popular", 100, 0);
-		for (const album of external.items ?? []) {
+		const popularAlbums = await fetchPopularAlbumsFallback(
+			SECTION_ITEM_COUNT * 3,
+		);
+		for (const album of popularAlbums) {
 			const key = String(album.id);
 			if (seen.has(key)) continue;
 			seen.add(key);
@@ -505,9 +506,7 @@ async function getAlbumsSection(userId: string): Promise<HomepageShelfItem[]> {
 				tidalId: key,
 				title: album.title ?? "Unknown Album",
 				artist: album.artist?.name ?? album.artists?.[0]?.name ?? null,
-				imageUrl: normalizeImageUrl(
-					(album as any).cover ?? album.album?.cover ?? null,
-				),
+				imageUrl: normalizeImageUrl(album.cover ?? null),
 				type: "album",
 			});
 			if (items.length >= SECTION_ITEM_COUNT) return items;
@@ -565,9 +564,12 @@ async function getArtistsSection(userId: string): Promise<HomepageShelfItem[]> {
 		if (items.length >= SECTION_ITEM_COUNT) return items;
 	}
 
+	// Use Last.fm for real popular artists instead of keyword search
 	try {
-		const external = await hifiClient.searchArtists("popular", 100, 0);
-		for (const artist of external.artists?.items ?? []) {
+		const popularArtists = await fetchPopularArtistsFallback(
+			SECTION_ITEM_COUNT * 3,
+		);
+		for (const artist of popularArtists) {
 			const key = String(artist.id);
 			if (seen.has(key)) continue;
 			seen.add(key);

@@ -34,6 +34,7 @@ export function AlbumListItem({
 					src={img}
 					alt={title}
 					fill
+					sizes="128px"
 					className="object-cover"
 					fallbackType="Album"
 				/>

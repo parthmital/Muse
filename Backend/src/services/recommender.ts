@@ -12,6 +12,10 @@ import {
 import { embeddingClient } from "./embeddingClient.js";
 import { getProfile } from "./profileBuilder.js";
 import { config } from "../config.js";
+import {
+	fetchTrendingTracksFallback,
+	type EnrichedTrack,
+} from "./popularityService.js";
 
 // ── Surface limits ─────────────────────────────────────────────────────────────
 function surfaceLimit(surface: string, override?: number): number {
@@ -105,8 +109,32 @@ async function genericRecs(
 	limit: number,
 	excludeIds: string[],
 ): Promise<RecommendedTrack[]> {
-	const db = getDb();
+	// Try Last.fm for real trending tracks first
+	const trendingTracks = await fetchTrendingTracksFallback(limit * 2);
 
+	if (trendingTracks.length >= limit) {
+		const excludeSet = new Set(excludeIds);
+		const filtered = trendingTracks.filter(
+			(t) => !excludeSet.has(String(t.id)),
+		);
+
+		return filtered.slice(0, limit).map((t, i) => ({
+			trackId: String(t.id),
+			title: t.title,
+			artistName: t.artist?.name ?? t.artists?.[0]?.name ?? null,
+			albumTitle: t.album?.title ?? null,
+			coverUrl: t.album?.cover ?? null,
+			score: (t as EnrichedTrack).lastFmPlayCount
+				? (Math.log1p((t as EnrichedTrack).lastFmPlayCount!) /
+						Math.log1p(1000000)) *
+					100
+				: (t.popularity ?? 0),
+			reason: "Trending now",
+		}));
+	}
+
+	// Fallback to database popularity if Last.fm fails
+	const db = getDb();
 	let rows: any[];
 	if (excludeIds.length) {
 		const placeholders = excludeIds.map(() => "?").join(",");
@@ -429,21 +457,37 @@ export async function getFavouriteArtists(
 		)
 		.all(userId, userId, userId, limit) as any[];
 
-	// If no user data, return popular artists
+	// If no user data, return popular artists from Last.fm
 	let artists: RecommendedArtist[];
 	if (artistRows.length === 0) {
-		const popularRows = db
-			.prepare(
-				"SELECT id, name, picture_url, genres FROM artists ORDER BY popularity DESC LIMIT ?",
-			)
-			.all(limit) as any[];
-		artists = popularRows.map((a, i) => ({
-			artistId: a.id,
-			name: a.name,
-			pictureUrl: a.picture_url ?? null,
-			genres: a.genres ? fromJson<string[]>(a.genres, []) : [],
-			score: (popularRows.length - i) / popularRows.length,
-		}));
+		// Import dynamically to avoid circular dependency
+		const { fetchPopularArtistsFallback } =
+			await import("./popularityService.js");
+		const popularArtists = await fetchPopularArtistsFallback(limit);
+
+		if (popularArtists.length >= limit) {
+			artists = popularArtists.slice(0, limit).map((a, i) => ({
+				artistId: String(a.id),
+				name: a.name ?? "Unknown Artist",
+				pictureUrl: a.picture ?? null,
+				genres: [],
+				score: (popularArtists.length - i) / popularArtists.length,
+			}));
+		} else {
+			// Fallback to database popularity
+			const popularRows = db
+				.prepare(
+					"SELECT id, name, picture_url, genres FROM artists ORDER BY popularity DESC LIMIT ?",
+				)
+				.all(limit) as any[];
+			artists = popularRows.map((a, i) => ({
+				artistId: a.id,
+				name: a.name,
+				pictureUrl: a.picture_url ?? null,
+				genres: a.genres ? fromJson<string[]>(a.genres, []) : [],
+				score: (popularRows.length - i) / popularRows.length,
+			}));
+		}
 	} else {
 		artists = artistRows.map((a) => ({
 			artistId: a.id,

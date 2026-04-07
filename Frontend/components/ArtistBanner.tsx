@@ -54,6 +54,7 @@ export function ArtistBanner({
 				src={artistPicture || ""}
 				alt={title}
 				fill
+				sizes="100vw"
 				className="object-cover"
 				priority
 				loading="eager"

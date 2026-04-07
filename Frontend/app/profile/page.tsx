@@ -207,6 +207,7 @@ export default function ProfilePage() {
 						fallbackType="Artist"
 						alt={userName}
 						fill
+						sizes="192px"
 						className="object-cover"
 						priority
 					/>

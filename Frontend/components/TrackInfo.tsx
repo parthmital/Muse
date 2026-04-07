@@ -21,6 +21,7 @@ export function TrackInfo({
 					src={image}
 					alt={title}
 					fill
+					sizes="48px"
 					fallbackType="Notes"
 				/>
 			</div>

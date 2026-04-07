@@ -217,6 +217,7 @@ export default function PlaylistPage({
 						src={playlistData?.playlist?.image || ""}
 						alt={title}
 						fill
+						sizes="320px"
 						className="rounded-lg object-cover"
 						priority
 						fallbackType="Playlist"
@@ -233,6 +234,7 @@ export default function PlaylistPage({
 									src={playlistData?.playlist?.creator?.picture || ""}
 									alt={"Creator"}
 									fill
+									sizes="48px"
 									className="object-cover"
 									fallbackType="Artist"
 								/>

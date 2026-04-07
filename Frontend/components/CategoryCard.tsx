@@ -37,6 +37,7 @@ export function CategoryCard({
 					src=""
 					alt={title}
 					fill
+					sizes="96px"
 					className="rounded-lg object-cover shadow-lg shadow-black/30"
 					fallbackType="Search"
 				/>

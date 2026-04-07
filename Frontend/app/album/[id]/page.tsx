@@ -224,6 +224,7 @@ export default function AlbumPage({
 						src={albumData?.album?.cover || ""}
 						alt={title}
 						fill
+						sizes="320px"
 						className="rounded-lg object-cover"
 						priority
 						loading="eager"
@@ -239,6 +240,7 @@ export default function AlbumPage({
 									src={albumData?.album?.artist?.picture || ""}
 									alt={"Artist"}
 									fill
+									sizes="48px"
 									className="object-cover"
 									fallbackType="Artist"
 								/>
