@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, Suspense, useState, useMemo, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { MediaShelf } from "@/components/MediaShelf";
 import { MediaCard, MediaItem } from "@/components/MediaCard";
 import { CategoryCard } from "@/components/CategoryCard";
@@ -51,9 +51,30 @@ const FILTERS = ["All", "Songs", "Playlists", "Artists", "Albums"];
 
 function SearchContentInner() {
 	const searchParams = useSearchParams();
+	const router = useRouter();
 	const query = searchParams.get("q") || "";
-	const [activeFilter, setActiveFilter] = useState("All");
+
+	const [activeFilter, setActiveFilter] = useState(() => {
+		const filterFromUrl = searchParams.get("filter");
+		return filterFromUrl && FILTERS.includes(filterFromUrl)
+			? filterFromUrl
+			: "All";
+	});
 	const [visibleSongs, setVisibleSongs] = useState(40);
+
+	// Sync filter state to URL
+	useEffect(() => {
+		const currentFilter = searchParams.get("filter");
+		if (activeFilter !== "All" && currentFilter !== activeFilter) {
+			const params = new URLSearchParams(searchParams.toString());
+			params.set("filter", activeFilter);
+			router.replace(`?${params.toString()}`, { scroll: false });
+		} else if (activeFilter === "All" && currentFilter) {
+			const params = new URLSearchParams(searchParams.toString());
+			params.delete("filter");
+			router.replace(`?${params.toString()}`, { scroll: false });
+		}
+	}, [activeFilter, searchParams, router]);
 
 	const { data: sectionsData } = useSWR("search-sections", getSearchSections);
 	const { data: recentData } = useSWR("recent-searches", getRecentSearches);

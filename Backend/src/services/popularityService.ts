@@ -13,11 +13,12 @@ import {
 } from "./lastfmClient.js";
 import { hifiClient, HifiTrack, HifiArtist, HifiAlbum } from "./hifiClient.js";
 import { config } from "../config.js";
+import { getDb } from "../db/helpers.js";
 
 // Log configuration status on module load
 if (!config.lastfmApiKey) {
 	console.warn(
-		"[PopularityService] LASTFM_API_KEY not configured - will use fallback keyword searches for trending/popular content",
+		"[PopularityService] LASTFM_API_KEY not configured - will use local database fallbacks for trending/popular content",
 	);
 	console.warn(
 		"[PopularityService] To use real Last.fm data, create a .env file with: LASTFM_API_KEY=your_api_key",
@@ -482,14 +483,39 @@ export async function fetchPopularArtistsFallback(
 		return artists;
 	}
 
-	// Fallback to keyword search
+	// Fallback to local database artists ordered by popularity
 	console.warn(
-		`[PopularityService] Last.fm returned insufficient artists (${artists.length}/${minCount}), falling back to keyword search`,
+		`[PopularityService] Last.fm returned insufficient artists (${artists.length}/${minCount}), falling back to local database`,
 	);
 
 	try {
-		const result = await hifiClient.searchArtists("popular", 100, 0);
-		return result.artists?.items?.slice(0, minCount) ?? [];
+		const db = getDb();
+		const rows = db
+			.prepare(
+				`SELECT id, name, picture_url, popularity 
+				 FROM artists 
+				 ORDER BY popularity DESC, updated_at DESC 
+				 LIMIT ?`,
+			)
+			.all(minCount) as Array<{
+			id: string;
+			name: string;
+			picture_url: string | null;
+			popularity: number;
+		}>;
+
+		if (rows.length > 0) {
+			console.log(
+				`[PopularityService] Using local database artists: ${rows.length} found`,
+			);
+			return rows.map((row) => ({
+				id: row.id,
+				name: row.name,
+				picture: row.picture_url,
+				popularity: row.popularity,
+			})) as HifiArtist[];
+		}
+		return [];
 	} catch {
 		return [];
 	}
@@ -507,14 +533,41 @@ export async function fetchPopularAlbumsFallback(
 		return albums;
 	}
 
-	// Fallback to keyword search
+	// Fallback to local database albums ordered by popularity
 	console.warn(
-		`[PopularityService] Last.fm returned insufficient albums (${albums.length}/${minCount}), falling back to keyword search`,
+		`[PopularityService] Last.fm returned insufficient albums (${albums.length}/${minCount}), falling back to local database`,
 	);
 
 	try {
-		const result = await hifiClient.searchAlbums("popular", 100, 0);
-		return result.items?.slice(0, minCount) ?? [];
+		const db = getDb();
+		const rows = db
+			.prepare(
+				`SELECT al.id, al.title, al.cover_url, MAX(t.popularity) as max_popularity
+				 FROM albums al
+				 JOIN tracks t ON t.album_id = al.id
+				 GROUP BY al.id
+				 ORDER BY max_popularity DESC, al.updated_at DESC
+				 LIMIT ?`,
+			)
+			.all(minCount) as Array<{
+			id: string;
+			title: string;
+			cover_url: string | null;
+			max_popularity: number;
+		}>;
+
+		if (rows.length > 0) {
+			console.log(
+				`[PopularityService] Using local database albums: ${rows.length} found`,
+			);
+			return rows.map((row) => ({
+				id: row.id,
+				title: row.title,
+				cover: row.cover_url,
+				popularity: row.max_popularity,
+			})) as HifiAlbum[];
+		}
+		return [];
 	} catch {
 		return [];
 	}

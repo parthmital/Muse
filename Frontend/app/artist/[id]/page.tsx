@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, use, useEffect } from "react";
+import { useState, use, useEffect, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 
 import { ArtistBanner } from "@/components/ArtistBanner";
 import { ArtistTabs } from "@/components/ArtistTabs";
@@ -10,13 +11,7 @@ import { ArtistHomeContent } from "@/components/ArtistHomeContent";
 import { ArtistMediaContent, Album } from "@/components/ArtistMediaContent";
 import { ArtistSidebar } from "@/components/ArtistSidebar";
 
-const TABS = [
-	"Home",
-	"Albums",
-	"Singles and EPs",
-	"Compilations",
-	"Features & More",
-];
+const TABS = ["Home", "Albums", "Singles and EPs"];
 
 import { getArtist } from "@/lib/api";
 import { tidalAlbumToMediaItem, tidalTrackToSong } from "@/lib/tidalAdapter";
@@ -50,7 +45,28 @@ export default function ArtistPage({
 	const popular = artistSongs;
 	const { playTrack } = usePlayer();
 
-	const [activeTab, setActiveTab] = useState("Home");
+	const searchParams = useSearchParams();
+	const router = useRouter();
+
+	const [activeTab, setActiveTab] = useState(() => {
+		const tabFromUrl = searchParams.get("tab");
+		return tabFromUrl && TABS.includes(tabFromUrl) ? tabFromUrl : "Home";
+	});
+
+	// Sync tab state to URL
+	useEffect(() => {
+		const currentTab = searchParams.get("tab");
+		if (activeTab !== "Home" && currentTab !== activeTab) {
+			const params = new URLSearchParams(searchParams.toString());
+			params.set("tab", activeTab);
+			router.replace(`?${params.toString()}`, { scroll: false });
+		} else if (activeTab === "Home" && currentTab) {
+			const params = new URLSearchParams(searchParams.toString());
+			params.delete("tab");
+			router.replace(`?${params.toString()}`, { scroll: false });
+		}
+	}, [activeTab, searchParams, router]);
+
 	const [isSearchActive, setIsSearchActive] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [viewMode, setViewMode] = useState<"Grid" | "List">("Grid");
@@ -64,21 +80,42 @@ export default function ArtistPage({
 	);
 
 	const albumsRaw = artistData?.albums || [];
-	const mappedAlbums = albumsRaw.map((a: any) => ({
+
+	// Deduplicate by ID
+	const seenIds = new Set<string>();
+	const uniqueAlbums = albumsRaw.filter((a: any) => {
+		const id = String(a.id || a.tidalId || "");
+		if (seenIds.has(id)) return false;
+		seenIds.add(id);
+		return true;
+	});
+
+	// Sort by release date (newest first)
+	const sortedAlbums = uniqueAlbums.sort((a: any, b: any) => {
+		const dateA = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
+		const dateB = b.releaseDate ? new Date(b.releaseDate).getTime() : 0;
+		return dateB - dateA;
+	});
+
+	const mappedAlbums = sortedAlbums.map((a: any) => ({
 		id: String(a.id || a.tidalId || ""),
 		title: a.title,
 		year: a.releaseDate?.substring(0, 4) || "",
 		img: a.cover,
 		songsCount: a.numberOfTracks || 0,
+		type: a.type || "ALBUM",
 	}));
 
 	const filterAlbum = (album: any) =>
 		album.title.toLowerCase().includes(searchQuery.toLowerCase());
 
-	const filteredAlbums = mappedAlbums.filter(filterAlbum);
-	const filteredSingles: any[] = [];
-	const filteredCompilations: any[] = [];
-	const filteredFeatures: any[] = [];
+	const filteredAlbums = mappedAlbums.filter(
+		(album: any) => filterAlbum(album) && album.type === "ALBUM",
+	);
+	const filteredSingles = mappedAlbums.filter(
+		(album: any) =>
+			filterAlbum(album) && (album.type === "SINGLE" || album.type === "EP"),
+	);
 
 	const handlePlayArtist = () => {
 		if (artistSongs.length > 0) {
@@ -126,26 +163,10 @@ export default function ArtistPage({
 					{activeTab === "Singles and EPs" && (
 						<ArtistMediaContent items={filteredSingles} viewMode={viewMode} />
 					)}
-
-					{activeTab === "Compilations" && (
-						<ArtistMediaContent
-							items={filteredCompilations}
-							viewMode={viewMode}
-						/>
-					)}
-
-					{activeTab === "Features & More" && (
-						<ArtistMediaContent items={filteredFeatures} viewMode={viewMode} />
-					)}
 				</div>
 
 				{/* Right Column: Sidebar */}
-				{![
-					"Albums",
-					"Singles and EPs",
-					"Compilations",
-					"Features & More",
-				].includes(activeTab) && (
+				{!["Albums", "Singles and EPs"].includes(activeTab) && (
 					<ArtistSidebar
 						biography={""}
 						tags={artistData?.artist?.artistTypes || []}

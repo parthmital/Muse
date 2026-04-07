@@ -427,11 +427,47 @@ function persistSystemPlaylist(
 	tx();
 }
 
-function selectTopArtists(pool: PoolTrack[], count: number): string[] {
+function selectTopArtists(
+	pool: PoolTrack[],
+	count: number,
+): Array<{ name: string; id: string | null; imageUrl: string | null }> {
+	// Aggregate artist data from pool tracks
+	const artistMap = new Map<
+		string,
+		{ name: string; id: string | null; imageUrl: string | null; count: number }
+	>();
+
+	for (const track of pool) {
+		if (!track.artistId || !track.artistName) continue;
+		const existing = artistMap.get(track.artistId);
+		if (existing) {
+			existing.count += 1;
+			if (!existing.imageUrl && track.artistImageUrl) {
+				existing.imageUrl = track.artistImageUrl;
+			}
+		} else {
+			artistMap.set(track.artistId, {
+				name: track.artistName,
+				id: track.artistId,
+				imageUrl: track.artistImageUrl,
+				count: 1,
+			});
+		}
+	}
+
+	// Sort by frequency (most popular first) and take top count
+	const sortedArtists = [...artistMap.values()]
+		.sort((a, b) => b.count - a.count)
+		.slice(0, count);
+
 	return ensureCount(
-		dedupeStrings(pool.map((t) => t.artistName)).slice(0, count),
+		sortedArtists.map((a) => ({
+			name: a.name,
+			id: a.id,
+			imageUrl: a.imageUrl,
+		})),
 		count,
-		(i) => `Artist ${i + 1}`,
+		(i) => ({ name: `Artist ${i + 1}`, id: null, imageUrl: null }),
 	);
 }
 
@@ -616,14 +652,15 @@ export async function buildHomepageShelvesForExternalUser(
 	for (let i = 0; i < SECTION_ITEM_COUNT; i++) {
 		const artist = topArtists[i % topArtists.length];
 		const mixId = `sys-mix-${externalId}-${i + 1}`;
-		const mixTitle = buildMadeForYouTitle(artist, i);
+		const mixTitle = buildMadeForYouTitle(artist.name, i);
 		const mixTrackIds = pickTrackIds(
 			poolIds,
 			baseOffset + i * 17,
 			COLLECTION_TRACK_COUNT,
 		);
+		// Use the artist's image directly for the mix cover
 		const mixCover =
-			pickDominantArtistCover(mixTrackIds, poolById) ??
+			normalizeImageUrl(artist.imageUrl) ??
 			poolById.get(mixTrackIds[0])?.coverUrl ??
 			null;
 		persistSystemPlaylist(
@@ -638,7 +675,7 @@ export async function buildHomepageShelvesForExternalUser(
 			id: mixId,
 			tidalId: mixId,
 			title: mixTitle,
-			artist,
+			artist: artist.name,
 			imageUrl: mixCover,
 			type: "mix",
 			songs: COLLECTION_TRACK_COUNT,
@@ -646,14 +683,15 @@ export async function buildHomepageShelvesForExternalUser(
 
 		const stationArtist = topArtists[(i + 3) % topArtists.length];
 		const stationId = `sys-playlist-${externalId}-${i + 1}`;
-		const stationTitle = buildStationTitle(stationArtist);
+		const stationTitle = buildStationTitle(stationArtist.name);
 		const stationTrackIds = pickTrackIds(
 			poolIds,
 			baseOffset + i * 23 + 5,
 			COLLECTION_TRACK_COUNT,
 		);
+		// Use the artist's image directly for the station cover
 		const stationCover =
-			pickDominantArtistCover(stationTrackIds, poolById) ??
+			normalizeImageUrl(stationArtist.imageUrl) ??
 			poolById.get(stationTrackIds[0])?.coverUrl ??
 			null;
 		persistSystemPlaylist(
@@ -668,7 +706,7 @@ export async function buildHomepageShelvesForExternalUser(
 			id: stationId,
 			tidalId: stationId,
 			title: stationTitle,
-			artist: stationArtist,
+			artist: stationArtist.name,
 			imageUrl: stationCover,
 			type: "playlist",
 			songs: COLLECTION_TRACK_COUNT,

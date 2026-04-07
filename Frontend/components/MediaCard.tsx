@@ -142,7 +142,6 @@ export function MediaCard({
 										icon="More"
 										alt="More"
 										className="rounded-full bg-black/60 backdrop-blur-md"
-										onClick={(e) => e.preventDefault()}
 									/>
 								}
 							/>

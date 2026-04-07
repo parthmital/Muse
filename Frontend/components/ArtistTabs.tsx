@@ -70,12 +70,7 @@ export function ArtistTabs({
 					)}
 				</div>
 
-				{[
-					"Albums",
-					"Singles and EPs",
-					"Compilations",
-					"Features & More",
-				].includes(activeTab) && (
+				{["Albums", "Singles and EPs"].includes(activeTab) && (
 					<div className="flex items-center gap-3">
 						<IconButton
 							icon="Grid"

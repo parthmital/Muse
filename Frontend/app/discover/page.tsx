@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { FilterBar } from "@/components/FilterBar";
 import { MediaGrid } from "@/components/MediaGrid";
 import { MediaItem } from "@/components/MediaCard";
@@ -24,10 +25,44 @@ const GENRE_QUERIES: Record<string, string> = {
 	"Hip-Hop": "hip hop",
 };
 
+const GENRE_FILTERS = [
+	"Music",
+	"EDM",
+	"Indie",
+	"Pop",
+	"Rock",
+	"Alt Rock",
+	"Country",
+	"R&B",
+	"Hip-Hop",
+];
+
 export default function DiscoverPage() {
-	const [activeFilter, setActiveFilter] = useState("Music");
+	const searchParams = useSearchParams();
+	const router = useRouter();
+
+	const [activeFilter, setActiveFilter] = useState(() => {
+		const filterFromUrl = searchParams.get("filter");
+		return filterFromUrl && GENRE_FILTERS.includes(filterFromUrl)
+			? filterFromUrl
+			: "Music";
+	});
 	const [tidalItems, setTidalItems] = useState<MediaItem[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
+
+	// Sync filter state to URL
+	useEffect(() => {
+		const currentFilter = searchParams.get("filter");
+		if (activeFilter !== "Music" && currentFilter !== activeFilter) {
+			const params = new URLSearchParams(searchParams.toString());
+			params.set("filter", activeFilter);
+			router.replace(`?${params.toString()}`, { scroll: false });
+		} else if (activeFilter === "Music" && currentFilter) {
+			const params = new URLSearchParams(searchParams.toString());
+			params.delete("filter");
+			router.replace(`?${params.toString()}`, { scroll: false });
+		}
+	}, [activeFilter, searchParams, router]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -89,17 +124,7 @@ export default function DiscoverPage() {
 	return (
 		<>
 			<FilterBar
-				filters={[
-					"Music",
-					"EDM",
-					"Indie",
-					"Pop",
-					"Rock",
-					"Alt Rock",
-					"Country",
-					"R&B",
-					"Hip-Hop",
-				]}
+				filters={GENRE_FILTERS}
 				activeFilter={activeFilter}
 				onFilterChange={setActiveFilter}
 			/>
