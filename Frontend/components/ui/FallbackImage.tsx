@@ -46,6 +46,8 @@ export function FallbackImage({
 						width={isFill ? undefined : (props.width ?? 48)}
 						height={isFill ? undefined : (props.height ?? 48)}
 						sizes={resolvedSizes}
+						loading="eager"
+						priority
 						className="object-contain opacity-40 brightness-0 invert"
 					/>
 				</div>
@@ -59,6 +61,8 @@ export function FallbackImage({
 			src={src}
 			alt={alt}
 			sizes={resolvedSizes}
+			loading={props.loading || "eager"}
+			priority={props.priority}
 			className={className}
 			onError={() => {
 				logger.warn(

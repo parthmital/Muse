@@ -82,23 +82,26 @@ export function useLibraryManager() {
 	const toggleAlbumInLibrary = useCallback(
 		(title: string) =>
 			toggleBackendItem("album", title, !!libraryAlbums[title]),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[libraryAlbums, mutateLibrary],
 	);
 
 	const togglePlaylistInLibrary = useCallback(
 		(title: string) =>
 			toggleBackendItem("playlist", title, !!libraryPlaylists[title]),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[libraryPlaylists, mutateLibrary],
 	);
 
 	const toggleArtistInLibrary = useCallback(
 		(title: string) =>
 			toggleBackendItem("artist", title, !!libraryArtists[title]),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[libraryArtists, mutateLibrary],
 	);
 
 	const togglePin = useCallback(
-		(title: string, currentState: boolean) => {
+		(_title: string, _currentState: boolean) => {
 			// TODO: wire to toggle_pin action endpoint
 		},
 		[pinnedItems],

@@ -138,6 +138,7 @@ export function DynamicActionMenu({
 				<div className="space-y-4">
 					<div className="flex gap-4">
 						<div className="h-24 w-24 shrink-0 overflow-hidden rounded-md bg-neutral-800">
+							{/* eslint-disable-next-line @next/next/no-img-element */}
 							{song?.img && (
 								<img
 									src={song.img}

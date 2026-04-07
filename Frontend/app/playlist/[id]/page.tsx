@@ -6,7 +6,6 @@ import { Song, SongRow } from "@/components/SongRow";
 import { SongListHeader } from "@/components/SongListHeader";
 import { IconButton } from "@/components/ui/IconButton";
 import { SearchInput } from "@/components/ui/SearchInput";
-import { ActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 
 import { useSongActions } from "@/hooks/useContextMenu";
 import { useSorting } from "@/hooks/useSorting";
@@ -32,10 +31,10 @@ export default function PlaylistPage({
 	const { id } = use(params);
 	const title = decodeURIComponent(id);
 
-	const { playTrack, playPlaylist, currentTrack, isPlaying } = usePlayer();
+	const { playPlaylist, currentTrack, isPlaying } = usePlayer();
 
 	const [playlistData, setPlaylistData] = useState<any>(null);
-	const [isLoading, setIsLoading] = useState(true);
+	const [, setIsLoading] = useState(true);
 
 	useEffect(() => {
 		getPlaylist(id)
@@ -52,7 +51,7 @@ export default function PlaylistPage({
 	const [isSearchActive, setIsSearchActive] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
 	// Since library logic was moved to backend, we ignore local library fetching
-	const libraryPlaylists: Record<string, boolean> = {};
+	const libraryPlaylists = useMemo<Record<string, boolean>>(() => ({}), []);
 
 	const {
 		isInitialized,

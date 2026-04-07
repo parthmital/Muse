@@ -52,7 +52,7 @@ export default function AlbumPage({
 	const [isSearchActive, setIsSearchActive] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
 	// Since library logic was moved to backend, we ignore local library fetching
-	const libraryAlbums: Record<string, boolean> = {};
+	const libraryAlbums = useMemo<Record<string, boolean>>(() => ({}), []);
 
 	const {
 		isInitialized,

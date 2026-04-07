@@ -2,7 +2,7 @@
 
 import { IconButton } from "./IconButton";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useState, useEffect, useRef, ChangeEvent, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { SearchInputSkeleton } from "./Skeletons";
 
 interface SearchInputProps {
@@ -34,6 +34,7 @@ function SearchInputContent({
 		if (q !== query) {
 			setQuery(q);
 		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [searchParams]);
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

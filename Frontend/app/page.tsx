@@ -26,6 +26,7 @@ export default async function Home() {
 					tidalId: item.tidalId,
 					imageUrl: item.imageUrl ?? undefined,
 					songs: item.songs,
+					artistImages: item.artistImages,
 				})),
 			}));
 

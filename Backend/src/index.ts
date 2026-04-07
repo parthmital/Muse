@@ -13,6 +13,7 @@ import { libraryRoutes } from "./api/library.js";
 import { browseRoutes } from "./api/browse.js";
 import { contextMenuRoutes } from "./api/contextMenu.js";
 import { actionRoutes } from "./api/actions.js";
+import { lastfmRoutes } from "./api/lastfm.js";
 import { db, runMigrations } from "./db/client.js";
 import { resolveUser } from "./db/helpers.js";
 import { embeddingClient } from "./services/embeddingClient.js";
@@ -107,6 +108,7 @@ await app.register(libraryRoutes);
 await app.register(browseRoutes);
 await app.register(contextMenuRoutes);
 await app.register(actionRoutes);
+await app.register(lastfmRoutes);
 
 app.setErrorHandler((error, request, reply) => {
 	app.log.error(

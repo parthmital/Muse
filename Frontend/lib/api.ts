@@ -133,6 +133,7 @@ export interface HomeShelf {
 		imageUrl?: string | null;
 		type: string;
 		songs?: number;
+		artistImages?: string[];
 	}>;
 }
 
@@ -549,4 +550,62 @@ export async function getContextMenuState(
 
 export async function checkTidalHealth(): Promise<{ status: string }> {
 	return apiFetch(`/tidal/health`);
+}
+
+// ── Last.fm ─────────────────────────────────────────────────────────────────
+
+export interface LastFmArtistInfo {
+	name: string;
+	mbid?: string;
+	listeners: string;
+	playcount: string;
+	bio: {
+		summary: string;
+		content: string;
+	};
+	similar: Array<{
+		name: string;
+		url: string;
+		image?: string;
+	}>;
+	tags: string[];
+}
+
+export interface LastFmTagInfo {
+	name: string;
+	url: string;
+	reach: string;
+	taggings: string;
+	streamable: string;
+	wiki: {
+		published: string;
+		summary: string;
+		content: string;
+	};
+}
+
+export interface LastFmSimilarTag {
+	name: string;
+	url: string;
+	streamable: string;
+}
+
+export async function getLastFmArtistInfo(
+	artistName: string,
+): Promise<LastFmArtistInfo | null> {
+	return apiFetch(`/lastfm/artist/${encodeURIComponent(artistName)}`);
+}
+
+export async function getLastFmTagInfo(
+	tagName: string,
+): Promise<LastFmTagInfo | null> {
+	return apiFetch(`/lastfm/tag/${encodeURIComponent(tagName)}`);
+}
+
+export async function getLastFmSimilarTags(
+	tagName: string,
+	limit?: number,
+): Promise<{ similar: LastFmSimilarTag[] } | null> {
+	const query = limit ? `?limit=${limit}` : "";
+	return apiFetch(`/lastfm/tag/${encodeURIComponent(tagName)}/similar${query}`);
 }

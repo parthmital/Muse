@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { IconButton } from "./ui/IconButton";
 import { FallbackImage } from "./ui/FallbackImage";
+import { CompositeGridImage } from "./ui/CompositeGridImage";
 import { useColorExtraction } from "@/hooks/useColorExtraction";
 import { DynamicActionMenu } from "./DynamicActionMenu";
 
@@ -18,6 +19,7 @@ export interface MediaItem {
 	// Tidal integration fields (optional, backward-compatible)
 	tidalId?: number | string;
 	imageUrl?: string;
+	artistImages?: string[];
 }
 
 interface MediaCardProps {
@@ -56,6 +58,7 @@ export function MediaCard({
 	};
 
 	const src = item.imageUrl || "";
+	const hasArtistImages = item.artistImages && item.artistImages.length > 0;
 
 	const extractedColor = useColorExtraction({
 		src,
@@ -77,18 +80,27 @@ export function MediaCard({
 							className={`flex flex-col gap-2 ${isArtist ? "items-center" : ""}`}
 						>
 							<div className="relative mb-1 aspect-square w-full">
-								<FallbackImage
-									className={
-										isArtist
-											? "rounded-full object-cover"
-											: "rounded-lg object-cover"
-									}
-									src={src}
-									alt={item.title}
-									fill
-									sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 200px"
-									fallbackType={fallbackMap[inferredType]}
-								/>
+								{hasArtistImages ? (
+									<CompositeGridImage
+										images={item.artistImages!}
+										alt={item.title}
+										fallbackType={fallbackMap[inferredType]}
+										className="h-full w-full"
+									/>
+								) : (
+									<FallbackImage
+										className={
+											isArtist
+												? "rounded-full object-cover"
+												: "rounded-lg object-cover"
+										}
+										src={src}
+										alt={item.title}
+										fill
+										sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 200px"
+										fallbackType={fallbackMap[inferredType]}
+									/>
+								)}
 							</div>
 							{isArtist ? (
 								<p className="line-clamp-1 font-medium text-white">
@@ -100,9 +112,9 @@ export function MediaCard({
 										<p className="line-clamp-1 font-medium text-white">
 											{item.title}
 										</p>
-										{(item.songs !== undefined || inferredType !== "album") && (
+										{inferredType === "album" && item.songs !== undefined && (
 											<p style={{ color: extractedColor || "white" }}>
-												{item.songs || 0}
+												{item.songs}
 											</p>
 										)}
 									</div>

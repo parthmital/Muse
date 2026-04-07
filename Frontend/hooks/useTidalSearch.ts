@@ -7,12 +7,8 @@
 
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
-	searchTracks,
-	searchArtists,
-	searchAlbums,
-	searchPlaylists,
 	searchAll,
 	type TidalTrack,
 	type TidalArtist,

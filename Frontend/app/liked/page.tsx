@@ -37,14 +37,8 @@ export default function LikedPage() {
 	const [searchQuery, setSearchQuery] = useState("");
 	const [songSnapshot, setSongSnapshot] = useState<Song[] | null>(null);
 
-	const {
-		likedSongs,
-		isInitialized,
-		toggleLike,
-		toggleLibrary,
-		isLiked,
-		isInLibrary,
-	} = useSongActions();
+	const { isInitialized, toggleLike, toggleLibrary, isLiked, isInLibrary } =
+		useSongActions();
 
 	// Fetch all library data from backend
 	const { data: libraryData } = useSWR<{
@@ -55,9 +49,6 @@ export default function LikedPage() {
 	// Since we are decoupling from mock ALL_SONGS, we default to empty array or fetch actual tracks.
 	useEffect(() => {
 		if (isInitialized && libraryData && songSnapshot === null) {
-			const likedIds = libraryData.library
-				.filter((i) => i.itemType === "liked_track")
-				.map((i) => i.itemId);
 			// MOCK API bridge for now: we have no bulk endpoint to fetch all track details by IDs easily
 			// without rewriting the backend. Default to an empty array for now.
 			const initialLiked: Song[] = [];

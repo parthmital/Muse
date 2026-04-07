@@ -2,7 +2,6 @@
 
 import { FallbackImage } from "@/components/ui/FallbackImage";
 import { IconButton } from "@/components/ui/IconButton";
-import { ActionMenu } from "@/components/ui/ActionMenu";
 import { useLibraryManager } from "@/hooks/useLibraryManager";
 import { usePlayer } from "@/context/PlayerContext";
 import { DynamicActionMenu } from "@/components/DynamicActionMenu";
@@ -12,7 +11,7 @@ import { Song } from "@/components/SongRow";
 interface ArtistBannerProps {
 	id: string; // TIDAL ID
 	title: string;
-	listenerCount: string;
+	listenerCount?: string;
 	onPlay?: () => void;
 	artistSongs?: Song[];
 	artistPicture?: string;
@@ -65,9 +64,11 @@ export function ArtistBanner({
 			<div className="absolute right-6 bottom-6 left-6 flex items-end justify-between">
 				<div className="flex flex-col gap-4">
 					<h1 className="text-5xl font-black text-white">{title}</h1>
-					<p className="font-medium text-white">
-						{listenerCount} monthly listeners
-					</p>
+					{listenerCount && (
+						<p className="font-medium text-white">
+							{listenerCount} monthly listeners
+						</p>
+					)}
 				</div>
 
 				<div className="flex items-center gap-3">

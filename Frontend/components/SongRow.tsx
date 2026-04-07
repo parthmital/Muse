@@ -3,7 +3,6 @@
 import { useMemo } from "react";
 import { IconButton } from "@/components/ui/IconButton";
 import { TrackInfo } from "@/components/TrackInfo";
-import { ActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 import { useSongActions } from "@/hooks/useContextMenu";
 import { usePlaylistManager } from "@/hooks/usePlaylistManager";
 import { usePlayer } from "@/context/PlayerContext";
@@ -95,16 +94,6 @@ export function SongRow({
 		}
 		console.log(
 			`${!inLibrary ? "Added to" : "Removed from"} library: ${song.title}`,
-		);
-	};
-
-	const togglePlaylist = (playlistName: string) => {
-		toggleSongInPlaylist(playlistName, songKey);
-		const isPresent = isSongInPlaylist(playlistName, songKey);
-		console.log(
-			`${!isPresent ? "Added" : "Removed"} ${song.title} ${
-				!isPresent ? "to" : "from"
-			} ${playlistName}`,
 		);
 	};
 

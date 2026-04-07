@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, use, useEffect, useCallback } from "react";
+import { useState, use, useMemo, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 import { ArtistBanner } from "@/components/ArtistBanner";
@@ -8,13 +8,14 @@ import { ArtistTabs } from "@/components/ArtistTabs";
 import { usePlayer } from "@/context/PlayerContext";
 import { Song } from "@/components/SongRow";
 import { ArtistHomeContent } from "@/components/ArtistHomeContent";
-import { ArtistMediaContent, Album } from "@/components/ArtistMediaContent";
+import { ArtistMediaContent } from "@/components/ArtistMediaContent";
 import { ArtistSidebar } from "@/components/ArtistSidebar";
+import { useLastFmArtist } from "@/hooks/useLastFmArtist";
 
 const TABS = ["Home", "Albums", "Singles and EPs"];
 
 import { getArtist } from "@/lib/api";
-import { tidalAlbumToMediaItem, tidalTrackToSong } from "@/lib/tidalAdapter";
+import { tidalTrackToSong } from "@/lib/tidalAdapter";
 
 export default function ArtistPage({
 	params,
@@ -25,7 +26,7 @@ export default function ArtistPage({
 	const title = decodeURIComponent(id);
 
 	const [artistData, setArtistData] = useState<any>(null);
-	const [isLoading, setIsLoading] = useState(true);
+	const [, setIsLoading] = useState(true);
 
 	useEffect(() => {
 		getArtist(Number(id))
@@ -37,6 +38,22 @@ export default function ArtistPage({
 				setIsLoading(false);
 			});
 	}, [id]);
+
+	const artistName = artistData?.artist?.name || title;
+	// Only fetch Last.fm data if we have a real artist name (not just an ID)
+	const lastFmArtistName = artistData?.artist?.name || null;
+	const { info: lastFmInfo } = useLastFmArtist(lastFmArtistName);
+
+	// Format listener count with commas
+	const formatNumber = (num: string): string => {
+		const n = parseInt(num, 10);
+		if (isNaN(n)) return num;
+		return n.toLocaleString();
+	};
+
+	const listenerCount = lastFmInfo?.listeners
+		? formatNumber(lastFmInfo.listeners)
+		: undefined;
 
 	const artistSongs = artistData
 		? artistData.topTracks.map(tidalTrackToSong)
@@ -81,14 +98,42 @@ export default function ArtistPage({
 
 	const albumsRaw = artistData?.albums || [];
 
-	// Deduplicate by ID
-	const seenIds = new Set<string>();
-	const uniqueAlbums = albumsRaw.filter((a: any) => {
-		const id = String(a.id || a.tidalId || "");
-		if (seenIds.has(id)) return false;
-		seenIds.add(id);
-		return true;
-	});
+	// Helper to normalize album title (remove version suffixes)
+	const normalizeAlbumTitle = (title: string): string => {
+		return title
+			.replace(
+				/\s*\([^)]*\b(?:Deluxe|Extended|Remastered|Explicit|Clean|Standard|Special Edition|Anniversary)\b[^)]*\)/gi,
+				"",
+			)
+			.replace(
+				/\s*-\s*(?:Deluxe|Extended|Remastered|Explicit|Clean|Standard|Special Edition|Anniversary).*$/i,
+				"",
+			)
+			.trim();
+	};
+
+	// Deduplicate by normalized title + year, keeping the one with most tracks
+	const albumGroups = new Map<string, any[]>();
+	for (const album of albumsRaw) {
+		const normalizedTitle = normalizeAlbumTitle(album.title || "");
+		const year = album.releaseDate?.substring(0, 4) || "unknown";
+		const key = `${normalizedTitle.toLowerCase()}-${year}`;
+		if (!albumGroups.has(key)) {
+			albumGroups.set(key, []);
+		}
+		albumGroups.get(key)!.push(album);
+	}
+
+	// For each group, pick the best version (most tracks)
+	const uniqueAlbums: any[] = [];
+	for (const [, group] of albumGroups) {
+		// Sort by number of tracks descending
+		group.sort(
+			(a: any, b: any) => (b.numberOfTracks || 0) - (a.numberOfTracks || 0),
+		);
+		// Take the first one (most tracks)
+		uniqueAlbums.push(group[0]);
+	}
 
 	// Sort by release date (newest first)
 	const sortedAlbums = uniqueAlbums.sort((a: any, b: any) => {
@@ -127,8 +172,8 @@ export default function ArtistPage({
 		<div className="flex flex-col">
 			<ArtistBanner
 				id={id}
-				title={artistData?.artist?.name || title}
-				listenerCount="20,795,080"
+				title={artistName}
+				listenerCount={listenerCount}
 				onPlay={handlePlayArtist}
 				artistSongs={artistSongs}
 				artistPicture={artistData?.artist?.picture}
@@ -168,8 +213,9 @@ export default function ArtistPage({
 				{/* Right Column: Sidebar */}
 				{!["Albums", "Singles and EPs"].includes(activeTab) && (
 					<ArtistSidebar
-						biography={""}
-						tags={artistData?.artist?.artistTypes || []}
+						biography={lastFmInfo?.bio?.summary || ""}
+						tags={lastFmInfo?.tags || artistData?.artist?.artistTypes || []}
+						similarArtists={lastFmInfo?.similar || []}
 						artistPicture={artistData?.artist?.picture}
 					/>
 				)}

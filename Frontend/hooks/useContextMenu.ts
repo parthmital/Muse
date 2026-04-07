@@ -44,8 +44,9 @@ export function useContextMenu() {
 
 	const getMenuItems = useCallback(
 		(type: string, data: ContextMenuState | null) => {
-			if (!data) return [];
-			const { inLibrary, isPinned } = data;
+			// Use default values when data is not available
+			const inLibrary = data?.inLibrary ?? false;
+			const isPinned = data?.isPinned ?? false;
 
 			const menu: ContextMenuItem[] = [];
 
@@ -205,12 +206,14 @@ export function useSongActions() {
 	const toggleLike = useCallback(
 		(songKey: string) =>
 			toggleBackendItem("liked_track", songKey, !!likedSongs[songKey]),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[likedSongs, mutateLibrary],
 	);
 
 	const toggleLibrary = useCallback(
 		(songKey: string) =>
 			toggleBackendItem("library_track", songKey, !!librarySongs[songKey]),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[librarySongs, mutateLibrary],
 	);
 

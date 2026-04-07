@@ -22,6 +22,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					href="https://fonts.googleapis.com/css2?family=Sansation:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap"
 					rel="stylesheet"
 				/>
+				{/* eslint-disable-next-line @next/next/no-page-custom-font */}
 			</head>
 			<body className="scrollbar-hide bg-black text-neutral-400">
 				<PlayerProvider>

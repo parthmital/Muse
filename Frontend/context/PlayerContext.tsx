@@ -44,8 +44,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 	const [duration, setDuration] = useState(0);
 	const [volume, setVolumeState] = useState(0.7);
 	const [audioQuality, setAudioQuality] = useState<string | null>(null);
-	const [queue, setQueue] = useState<Song[]>([]);
-	const [currentIndex, setCurrentIndex] = useState(-1);
+	const [, setQueue] = useState<Song[]>([]);
+	const [, setCurrentIndex] = useState(-1);
 	const [isShuffled, setIsShuffled] = useState(false);
 	const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("off");
 

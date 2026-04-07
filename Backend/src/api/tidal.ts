@@ -24,6 +24,8 @@ import axios from "axios";
 import { Jimp } from "jimp";
 import pLimit from "p-limit";
 import { getDb } from "../db/helpers.js";
+import { lastfmClient } from "../services/lastfmClient.js";
+import { searchTidalTrack } from "../services/popularityService.js";
 
 // ── Quality Chain ────────────────────────────────────────────────────────────
 
@@ -273,6 +275,141 @@ function localTrackToRaw(row: any) {
 		album,
 		mixes: {},
 	};
+}
+
+/**
+ * Load genre mix tracks dynamically from Last.fm API
+ */
+async function loadGenreMixPlaylist(
+	playlistId: string,
+	limit: number,
+	offset: number,
+): Promise<LocalPlaylistData | null> {
+	const db = getDb();
+
+	// Get playlist metadata from DB
+	const playlist = db
+		.prepare(
+			`SELECT p.id, p.title, p.description, p.cover_url
+			 FROM playlists p
+			 WHERE p.id = ?
+			 LIMIT 1`,
+		)
+		.get(playlistId) as
+		| {
+				id: string;
+				title: string;
+				description: string | null;
+				cover_url: string | null;
+		  }
+		| undefined;
+
+	if (!playlist) return null;
+
+	// Extract genre from title (e.g., "Rock Mix" -> "rock")
+	const genreMatch = playlist.title.match(/^(.+?)\s+Mix$/i);
+	const genre = genreMatch ? genreMatch[1] : playlist.title;
+
+	try {
+		// Fetch top tracks for this genre from Last.fm
+		const lastFmTracks = await lastfmClient.getTopTracksByTag(genre, 50);
+
+		if (!lastFmTracks.length) {
+			console.warn(`[TidalAPI] No tracks found for genre: ${genre}`);
+			return {
+				playlist: {
+					id: playlist.id,
+					title: playlist.title,
+					description: playlist.description,
+					coverUrl: playlist.cover_url,
+					numberOfTracks: 0,
+					duration: 0,
+				},
+				tracks: [],
+			};
+		}
+
+		// Map Last.fm tracks to Tidal tracks
+		const tracks: any[] = [];
+		let totalDuration = 0;
+
+		// Process tracks with pagination
+		const startIndex = offset;
+		const endIndex = Math.min(offset + limit, lastFmTracks.length);
+		const tracksToFetch = lastFmTracks.slice(startIndex, endIndex);
+
+		for (const lfTrack of tracksToFetch) {
+			try {
+				const tidalTrack = await searchTidalTrack(
+					lfTrack.name,
+					lfTrack.artist.name,
+				);
+
+				if (tidalTrack) {
+					// Convert to raw format expected by normalizeTrack
+					const rawTrack = {
+						id: tidalTrack.id,
+						title: tidalTrack.title,
+						duration: tidalTrack.duration ?? 0,
+						popularity: tidalTrack.popularity ?? null,
+						explicit: tidalTrack.explicit ?? false,
+						audioQuality: tidalTrack.audioQuality ?? null,
+						isrc: tidalTrack.isrc ?? null,
+						artist: tidalTrack.artist
+							? {
+									id: tidalTrack.artist.id,
+									name: tidalTrack.artist.name,
+									picture: tidalTrack.artist.picture ?? null,
+								}
+							: null,
+						artists:
+							tidalTrack.artists?.map((a) => ({
+								id: a.id,
+								name: a.name,
+								picture: a.picture ?? null,
+							})) ?? [],
+						album: tidalTrack.album
+							? {
+									id: tidalTrack.album.id,
+									title: tidalTrack.album.title,
+									cover: tidalTrack.album.cover ?? null,
+								}
+							: null,
+						mixes: {},
+					};
+					tracks.push(rawTrack);
+					totalDuration += rawTrack.duration;
+				}
+			} catch {
+				// Skip tracks that fail to map
+			}
+		}
+
+		return {
+			playlist: {
+				id: playlist.id,
+				title: playlist.title,
+				description: playlist.description,
+				coverUrl: playlist.cover_url,
+				numberOfTracks: lastFmTracks.length, // Report full count, not just fetched
+				duration: totalDuration,
+			},
+			tracks,
+		};
+	} catch (error) {
+		console.error(`[TidalAPI] Failed to load genre mix for ${genre}:`, error);
+		return {
+			playlist: {
+				id: playlist.id,
+				title: playlist.title,
+				description: playlist.description,
+				coverUrl: playlist.cover_url,
+				numberOfTracks: 0,
+				duration: 0,
+			},
+			tracks: [],
+		};
+	}
 }
 
 function loadLocalPlaylist(
@@ -979,6 +1116,30 @@ export async function tidalRoutes(app: FastifyInstance) {
 		const limit = req.query.limit ? parseInt(req.query.limit, 10) : 100;
 		const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
 
+		// Check if this is a genre mix playlist (sys-genre-*)
+		if (playlistId.startsWith("sys-genre-")) {
+			const genreMix = await loadGenreMixPlaylist(playlistId, limit, offset);
+			if (genreMix) {
+				return {
+					playlist: {
+						id: genreMix.playlist.id,
+						title: genreMix.playlist.title,
+						description: genreMix.playlist.description ?? "",
+						numberOfTracks: genreMix.playlist.numberOfTracks,
+						duration: genreMix.playlist.duration,
+						image: normalizeImageField(genreMix.playlist.coverUrl),
+						url: null,
+						creator: {
+							name: "Muse",
+							picture: null,
+						},
+					},
+					tracks: genreMix.tracks.map(normalizeTrack).filter(Boolean),
+				};
+			}
+		}
+
+		// Regular local playlist loading
 		const local = loadLocalPlaylist(playlistId, limit, offset);
 		if (local) {
 			return {
@@ -999,6 +1160,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 			};
 		}
 
+		// External TIDAL playlists
 		const cacheK = `${playlistId}:${limit}:${offset}`;
 		const cached = playlistCache.get(cacheK);
 		if (cached) return cached;

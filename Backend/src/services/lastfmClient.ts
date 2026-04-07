@@ -36,6 +36,42 @@ export interface LastFMTag {
 	url?: string;
 }
 
+export interface LastFMTagInfo {
+	name: string;
+	url: string;
+	reach: string;
+	taggings: string;
+	streamable: string;
+	wiki: {
+		published: string;
+		summary: string;
+		content: string;
+	};
+}
+
+export interface LastFMSimilarTag {
+	name: string;
+	url: string;
+	streamable: string;
+}
+
+export interface LastFMArtistInfo {
+	name: string;
+	mbid?: string;
+	listeners: string;
+	playcount: string;
+	bio: {
+		summary: string;
+		content: string;
+	};
+	similar: Array<{
+		name: string;
+		url: string;
+		image?: string;
+	}>;
+	tags: string[];
+}
+
 // ── Client ─────────────────────────────────────────────────────────────────────
 
 class LastFMClient {
@@ -149,6 +185,49 @@ class LastFMClient {
 		return data?.albums?.album ?? [];
 	}
 
+	async getTagInfo(tag: string): Promise<LastFMTagInfo | null> {
+		const data = await this.call<{
+			tag?: {
+				name: string;
+				url: string;
+				reach: string;
+				taggings: string;
+				streamable: string;
+				wiki?: {
+					published?: string;
+					summary?: string;
+					content?: string;
+				};
+			};
+		}>("tag.getInfo", { tag });
+		if (!data?.tag) return null;
+		return {
+			name: data.tag.name,
+			url: data.tag.url,
+			reach: data.tag.reach,
+			taggings: data.tag.taggings,
+			streamable: data.tag.streamable,
+			wiki: {
+				published: data.tag.wiki?.published ?? "",
+				summary: data.tag.wiki?.summary ?? "",
+				content: data.tag.wiki?.content ?? "",
+			},
+		};
+	}
+
+	async getSimilarTags(tag: string, limit = 20): Promise<LastFMSimilarTag[]> {
+		const data = await this.call<{
+			similartags?: {
+				tag: Array<{ name: string; url: string; streamable: string }>;
+			};
+		}>("tag.getSimilar", { tag, limit: String(limit) });
+		return (data?.similartags?.tag ?? []).map((t) => ({
+			name: t.name,
+			url: t.url,
+			streamable: t.streamable,
+		}));
+	}
+
 	// ── Artist Methods ─────────────────────────────────────────────────────────
 
 	async getArtistTopTracks(artist: string, limit = 20): Promise<LastFMTrack[]> {
@@ -163,6 +242,58 @@ class LastFMClient {
 			similarartists?: { artist: LastFMArtist[] };
 		}>("artist.getSimilar", { artist, limit: String(limit) });
 		return data?.similarartists?.artist ?? [];
+	}
+
+	async getArtistInfo(
+		artist: string,
+		limit = 10,
+	): Promise<LastFMArtistInfo | null> {
+		// Fetch both artist.getInfo and artist.getSimilar in parallel
+		const [infoData, similarData] = await Promise.all([
+			this.call<{
+				artist?: {
+					name: string;
+					mbid?: string;
+					stats?: { listeners?: string; playcount?: string };
+					bio?: { summary?: string; content?: string };
+					similar?: { artist?: Array<{ name: string; url: string }> };
+					tags?: { tag?: Array<{ name: string }> };
+				};
+			}>("artist.getInfo", { artist, autocorrect: "1" }),
+			this.call<{
+				similarartists?: {
+					artist?: Array<{
+						name: string;
+						url: string;
+						image?: Array<{ "#text": string; size: string }>;
+					}>;
+				};
+			}>("artist.getSimilar", { artist, limit: String(limit) }),
+		]);
+
+		const artistInfo = infoData?.artist;
+		if (!artistInfo) return null;
+
+		// Extract similar artists from getSimilar call for better images
+		const similarArtists =
+			similarData?.similarartists?.artist?.map((a) => ({
+				name: a.name,
+				url: a.url,
+				image: a.image?.find((img) => img.size === "large")?.["#text"],
+			})) ?? [];
+
+		return {
+			name: artistInfo.name,
+			mbid: artistInfo.mbid,
+			listeners: artistInfo.stats?.listeners ?? "0",
+			playcount: artistInfo.stats?.playcount ?? "0",
+			bio: {
+				summary: artistInfo.bio?.summary ?? "",
+				content: artistInfo.bio?.content ?? "",
+			},
+			similar: similarArtists,
+			tags: (artistInfo.tags?.tag ?? []).map((t) => t.name),
+		};
 	}
 
 	// ── Enrich ─────────────────────────────────────────────────────────────────

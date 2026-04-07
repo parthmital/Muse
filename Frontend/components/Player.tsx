@@ -15,7 +15,6 @@ export function Player() {
 		duration,
 		togglePlay,
 		seek,
-		audioQuality,
 		skipToNext,
 		skipToPrev,
 		toggleShuffle,

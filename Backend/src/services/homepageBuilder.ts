@@ -7,6 +7,7 @@ import {
 	type UserRow,
 } from "../db/helpers.js";
 import { hifiClient, type HifiTrack } from "./hifiClient.js";
+import { lastfmClient } from "./lastfmClient.js";
 import {
 	recommend,
 	getAlbumsForYou,
@@ -16,6 +17,7 @@ import {
 	fetchTrendingTracksFallback,
 	fetchPopularArtistsFallback,
 	fetchPopularAlbumsFallback,
+	searchTidalArtist,
 } from "./popularityService.js";
 
 const SECTION_ITEM_COUNT = 10;
@@ -26,6 +28,13 @@ function normalizeImageUrl(
 	type: "square" | "video" = "square",
 ): string | null {
 	if (!value) return null;
+
+	// If it's a Tidal URL, always pass through the proxy (hifiClient handles slug extraction)
+	if (typeof value === "string" && value.includes("tidal.com/images/")) {
+		return hifiClient.tidalImageUrl(value, 640, type);
+	}
+
+	// Return other absolute URLs as-is
 	if (
 		value.startsWith("http://") ||
 		value.startsWith("https://") ||
@@ -35,6 +44,8 @@ function normalizeImageUrl(
 	) {
 		return value;
 	}
+
+	// For raw picture IDs, use the proxy
 	return hifiClient.tidalImageUrl(value, 640, type);
 }
 
@@ -57,6 +68,7 @@ export type HomepageShelfItem = {
 	type: string;
 	artist?: string | null;
 	songs?: number;
+	artistImages?: string[];
 };
 
 export type HomepageShelf = {
@@ -471,8 +483,164 @@ function selectTopArtists(
 	);
 }
 
-function buildMadeForYouTitle(artistName: string, index: number): string {
-	return `${artistName} Mix ${index + 1}`;
+function buildMadeForYouTitle(artistName: string, _index: number): string {
+	return `${artistName} Mix`;
+}
+
+function buildGenreMixTitle(genre: string): string {
+	return `${genre} Mix`;
+}
+
+// Cache for top tags to avoid repeated API calls
+let cachedTopTags: string[] | null = null;
+let cachedTopTagsTime = 0;
+const TOP_TAGS_CACHE_TTL = 1000 * 60 * 60; // 1 hour
+
+async function getTopGenreTags(
+	userId: string,
+	count: number,
+): Promise<string[]> {
+	const db = getDb();
+	const user = db
+		.prepare("SELECT is_new FROM users WHERE id = ?")
+		.get(userId) as { is_new: number } | undefined;
+
+	// New users: fetch from Last.fm API
+	if (user?.is_new === 1) {
+		try {
+			const tags = await lastfmClient.getTopTags(50);
+			// Format tags: capitalize first letter of each word
+			const formattedTags = tags.map((t) =>
+				t.name
+					.split(/[-\s]+/)
+					.map(
+						(word: string) =>
+							word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+					)
+					.join(" "),
+			);
+			// Filter out duplicates
+			const seen = new Set<string>();
+			const uniqueTags: string[] = [];
+			for (const tag of formattedTags) {
+				const key = tag.toLowerCase();
+				if (seen.has(key)) continue;
+				seen.add(key);
+				uniqueTags.push(tag);
+			}
+			return uniqueTags.slice(0, count);
+		} catch (error) {
+			console.error(
+				"[HomepageBuilder] Failed to fetch top tags from Last.fm for new user:",
+				error,
+			);
+			// Fall through to DB fallback
+		}
+	}
+
+	// Old users (or fallback): get top genres from DB based on user's listening history
+	try {
+		const genreRows = db
+			.prepare(
+				`SELECT tf.genre, COUNT(*) as c
+				 FROM track_features tf
+				 JOIN user_interactions ui ON ui.track_id = tf.track_id
+				 WHERE ui.user_id = ? AND tf.genre IS NOT NULL AND tf.genre != ''
+				 GROUP BY tf.genre
+				 ORDER BY c DESC
+				 LIMIT ?`,
+			)
+			.all(userId, count * 2) as Array<{ genre: string }>;
+
+		if (genreRows.length > 0) {
+			return dedupeStrings(genreRows.map((r) => r.genre)).slice(0, count);
+		}
+
+		// If no user history, fall back to global DB genres
+		const globalGenreRows = db
+			.prepare(
+				`SELECT genre, COUNT(*) as c
+				 FROM track_features
+				 WHERE genre IS NOT NULL AND genre != ''
+				 GROUP BY genre
+				 ORDER BY c DESC
+				 LIMIT ?`,
+			)
+			.all(count) as Array<{ genre: string }>;
+
+		return dedupeStrings(globalGenreRows.map((r) => r.genre)).slice(0, count);
+	} catch (error) {
+		console.error("[HomepageBuilder] Failed to fetch genres from DB:", error);
+		// Final fallback: return some default genres
+		return [
+			"Rock",
+			"Pop",
+			"Hip Hop",
+			"Electronic",
+			"Indie",
+			"R&B",
+			"Jazz",
+			"Classical",
+			"Metal",
+			"Folk",
+		].slice(0, count);
+	}
+}
+
+/**
+ * Generate genre mix cover using the top artist's image (same approach as artist mixes)
+ */
+async function generateGenreMixCover(tag: string): Promise<string | null> {
+	try {
+		// Get top artists for this tag from Last.fm
+		const topArtists = await lastfmClient.getTopArtistsByTag(tag, 10);
+		if (!topArtists.length) {
+			console.warn(`[HomepageBuilder] No artists found for tag: ${tag}`);
+			return null;
+		}
+
+		// Find the first artist with a valid Tidal image
+		for (const lfArtist of topArtists) {
+			try {
+				const tidalArtist = await searchTidalArtist(lfArtist.name);
+				if (tidalArtist?.picture) {
+					return normalizeImageUrl(tidalArtist.picture);
+				}
+			} catch {
+				// Continue to next artist if search fails
+			}
+		}
+
+		console.warn(
+			`[HomepageBuilder] No Tidal images found for any artist in ${tag} mix`,
+		);
+		return null;
+	} catch (error) {
+		console.error(
+			`[HomepageBuilder] Failed to generate cover for tag ${tag}:`,
+			error,
+		);
+		return null;
+	}
+}
+
+/**
+ * Get tag info from Last.fm for genre mix description
+ */
+async function getGenreMixDescription(tag: string): Promise<string> {
+	try {
+		const tagInfo = await lastfmClient.getTagInfo(tag);
+		if (tagInfo?.wiki?.summary) {
+			// Strip HTML tags and truncate
+			const cleanSummary = tagInfo.wiki.summary
+				.replace(/<[^>]*>/g, "")
+				.substring(0, 200);
+			return cleanSummary || `A mix of ${tag} music`;
+		}
+	} catch {
+		// Fall through to default
+	}
+	return `A mix of ${tag} music`;
 }
 
 function buildStationTitle(artistName: string): string {
@@ -647,7 +815,7 @@ export async function buildHomepageShelvesForExternalUser(
 	const baseOffset = stableOffset(daySeed, Math.max(poolIds.length, 1));
 
 	const madeForYou: HomepageShelfItem[] = [];
-	const stations: HomepageShelfItem[] = [];
+	let genreMixes: HomepageShelfItem[] = [];
 
 	for (let i = 0; i < SECTION_ITEM_COUNT; i++) {
 		const artist = topArtists[i % topArtists.length];
@@ -680,37 +848,73 @@ export async function buildHomepageShelvesForExternalUser(
 			type: "mix",
 			songs: COLLECTION_TRACK_COUNT,
 		});
+	}
 
-		const stationArtist = topArtists[(i + 3) % topArtists.length];
-		const stationId = `sys-playlist-${externalId}-${i + 1}`;
-		const stationTitle = buildStationTitle(stationArtist.name);
-		const stationTrackIds = pickTrackIds(
-			poolIds,
-			baseOffset + i * 23 + 5,
-			COLLECTION_TRACK_COUNT,
-		);
-		// Use the artist's image directly for the station cover
-		const stationCover =
-			normalizeImageUrl(stationArtist.imageUrl) ??
-			poolById.get(stationTrackIds[0])?.coverUrl ??
-			null;
-		persistSystemPlaylist(
-			user.id,
-			stationId,
-			stationTitle,
-			"System generated station",
-			stationCover,
-			stationTrackIds,
-		);
-		stations.push({
-			id: stationId,
-			tidalId: stationId,
-			title: stationTitle,
-			artist: stationArtist.name,
-			imageUrl: stationCover,
-			type: "playlist",
-			songs: COLLECTION_TRACK_COUNT,
-		});
+	// Get top genre tags from Last.fm and create genre mixes
+	try {
+		let topGenres = await getTopGenreTags(user.id, SECTION_ITEM_COUNT);
+
+		// If no local genres available, fetch directly from Last.fm chart.getTopTags
+		if (topGenres.length === 0) {
+			console.log(
+				"[HomepageBuilder] No local genres, fetching from Last.fm chart.getTopTags",
+			);
+			const tags = await lastfmClient.getTopTags(SECTION_ITEM_COUNT);
+			// Format tags: capitalize first letter of each word
+			topGenres = tags.map((t) =>
+				t.name
+					.split(/[-\s]+/)
+					.map(
+						(word: string) =>
+							word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+					)
+					.join(" "),
+			);
+			// Filter duplicates
+			const seen = new Set<string>();
+			topGenres = topGenres.filter((tag) => {
+				const key = tag.toLowerCase();
+				if (seen.has(key)) return false;
+				seen.add(key);
+				return true;
+			});
+		}
+
+		// Build genre mixes - we now always have genres (from local DB or Last.fm)
+		for (let i = 0; i < SECTION_ITEM_COUNT; i++) {
+			const genre = topGenres[i % topGenres.length];
+			const genreMixId = `sys-genre-${externalId}-${i + 1}`;
+			const genreMixTitle = buildGenreMixTitle(genre);
+
+			// Generate cover from Last.fm tag.getTopArtists
+			const genreCover = await generateGenreMixCover(genre);
+
+			// Get description from Last.fm tag.getInfo
+			const genreDescription = await getGenreMixDescription(genre);
+
+			// For genre mixes, we don't store track IDs - they are fetched dynamically
+			// from Last.fm tag.getTopTracks when the playlist is accessed
+			persistSystemPlaylist(
+				user.id,
+				genreMixId,
+				genreMixTitle,
+				genreDescription,
+				genreCover,
+				[], // Empty track IDs - fetched dynamically
+			);
+			genreMixes.push({
+				id: genreMixId,
+				tidalId: genreMixId,
+				title: genreMixTitle,
+				artist: genre,
+				imageUrl: genreCover,
+				type: "playlist",
+				songs: COLLECTION_TRACK_COUNT,
+			});
+		}
+	} catch (error) {
+		console.error("[HomepageBuilder] Failed to build genre mixes:", error);
+		// Genre mixes section will be empty - homepage will still have other sections
 	}
 
 	const [albums, artists] = await Promise.all([
@@ -722,8 +926,8 @@ export async function buildHomepageShelvesForExternalUser(
 		userId: externalId,
 		generatedAt: Date.now(),
 		shelves: [
-			{ title: "Made For You", type: "mixes", items: madeForYou },
-			{ title: "Recommended Stations", type: "playlists", items: stations },
+			{ title: "Artists Mixes", type: "mixes", items: madeForYou },
+			{ title: "Genre Mixes", type: "playlists", items: genreMixes },
 			{
 				title: "Albums For You",
 				type: "albums",
