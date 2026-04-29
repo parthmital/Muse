@@ -147,79 +147,79 @@ For recommendation generation, the API queries the user's profile vector, reques
 
 ```
 Muse/
-├── Backend/                    # Node.js API and worker system
+├── Backend/                              # Node.js API and worker system
 │   ├── src/
-│   │   ├── api/               # Fastify route handlers
-│   │   │   ├── actions.ts     # Playlist/library actions
-│   │   │   ├── browse.ts      # Browse by category endpoints
-│   │   │   ├── contextMenu.ts # Context menu options
-│   │   │   ├── interactions.ts # Play events, likes, history
-│   │   │   ├── lastfm.ts      # Last.fm integration routes
-│   │   │   ├── library.ts     # User library operations
-│   │   │   ├── recommendations.ts # Rec endpoints, queue management
-│   │   │   ├── tidal.ts       # Tidal API proxy and image handling
-│   │   │   ├── tracks.ts      # Track metadata endpoints
-│   │   │   └── users.ts       # User management
-│   │   ├── cache/             # LRU cache implementations
-│   │   ├── db/                # Database client and migrations
-│   │   ├── services/          # Business logic layer
-│   │   │   ├── embeddingClient.ts  # Python service client
-│   │   │   ├── hifiClient.ts       # Audio streaming client
-│   │   │   ├── homepageBuilder.ts # Personalised shelf generation
-│   │   │   ├── lastfmClient.ts     # Last.fm API client
-│   │   │   ├── popularityService.ts # Track popularity tracking
-│   │   │   ├── profileBuilder.ts   # User profile construction
-│   │   │   ├── queueManager.ts     # Playback queue logic
-│   │   │   └── recommender.ts      # Core recommendation engine
-│   │   ├── types/             # TypeScript type definitions
-│   │   ├── workers/           # Background job processing
-│   │   │   ├── runner.ts      # Job queue poller
-│   │   │   └── jobs/          # Job handlers
-│   │   ├── config.ts          # Environment configuration
-│   │   └── index.ts           # Application entry point
-│   ├── python/                # Embedding microservice
-│   │   ├── main.py            # FastAPI application
-│   │   └── requirements.txt   # Python dependencies
-│   ├── scripts/               # Utility scripts
-│   │   ├── buildIndex.ts      # Manual FAISS index rebuild
-│   │   └── seedCatalog.ts     # Initial data seeding
-│   ├── lastfm_helper/         # Last.fm data structures
+│   │   ├── api/                          # Fastify route handlers
+│   │   │   ├── actions.ts                # Playlist/library actions
+│   │   │   ├── browse.ts                 # Browse by category endpoints
+│   │   │   ├── contextMenu.ts            # Context menu options
+│   │   │   ├── interactions.ts           # Play events, likes, history
+│   │   │   ├── lastfm.ts                 # Last.fm integration routes
+│   │   │   ├── library.ts                # User library operations
+│   │   │   ├── recommendations.ts        # Rec endpoints, queue management
+│   │   │   ├── tidal.ts                  # Tidal API proxy and image handling
+│   │   │   ├── tracks.ts                 # Track metadata endpoints
+│   │   │   └── users.ts                  # User management
+│   │   ├── cache/                        # LRU cache implementations
+│   │   ├── db/                           # Database client and migrations
+│   │   ├── services/                     # Business logic layer
+│   │   │   ├── embeddingClient.ts        # Python service client
+│   │   │   ├── hifiClient.ts             # Audio streaming client
+│   │   │   ├── homepageBuilder.ts        # Personalised shelf generation
+│   │   │   ├── lastfmClient.ts           # Last.fm API client
+│   │   │   ├── popularityService.ts      # Track popularity tracking
+│   │   │   ├── profileBuilder.ts         # User profile construction
+│   │   │   ├── queueManager.ts           # Playback queue logic
+│   │   │   └── recommender.ts            # Core recommendation engine
+│   │   ├── types/                        # TypeScript type definitions
+│   │   ├── workers/                      # Background job processing
+│   │   │   ├── runner.ts                 # Job queue poller
+│   │   │   └── jobs/                     # Job handlers
+│   │   ├── config.ts                     # Environment configuration
+│   │   └── index.ts                      # Application entry point
+│   ├── python/                           # Embedding microservice
+│   │   ├── main.py                       # FastAPI application
+│   │   └── requirements.txt              # Python dependencies
+│   ├── scripts/                          # Utility scripts
+│   │   ├── buildIndex.ts                 # Manual FAISS index rebuild
+│   │   └── seedCatalog.ts                # Initial data seeding
+│   ├── lastfm_helper/                    # Last.fm data structures
 │   ├── package.json
 │   └── tsconfig.json
-├── Frontend/                   # Next.js application
-│   ├── app/                   # App Router pages
-│   │   ├── album/[id]/        # Album detail page
-│   │   ├── artist/[id]/       # Artist detail page
-│   │   ├── discover/          # Discovery surface
-│   │   ├── library/           # User library view
-│   │   ├── liked/             # Liked songs page
-│   │   ├── playlist/[id]/     # Playlist detail page
-│   │   ├── profile/           # User profile
-│   │   ├── search/            # Search results
-│   │   ├── settings/          # Application settings
-│   │   ├── globals.css        # Global styles
-│   │   ├── layout.tsx         # Root layout
-│   │   ├── page.tsx           # Homepage
-│   │   └── error.tsx          # Error boundaries
-│   ├── components/            # React components
-│   │   ├── ui/               # Base UI components
-│   │   ├── Player.tsx        # Playback controls
-│   │   ├── Sidebar.tsx       # Navigation sidebar
-│   │   ├── TopBar.tsx        # Search and header
-│   │   ├── MediaCard.tsx     # Album/artist cards
-│   │   ├── MediaShelf.tsx    # Horizontal scroll shelf
-│   │   ├── SongRow.tsx       # Track list item
+├── Frontend/                             # Next.js application with App Router
+│   ├── app/                              # App Router pages
+│   │   ├── album/[id]/                   # Album detail page
+│   │   ├── artist/[id]/                  # Artist detail page
+│   │   ├── discover/                     # Discovery surface
+│   │   ├── library/                      # User library view
+│   │   ├── liked/                        # Liked songs page
+│   │   ├── playlist/[id]/                # Playlist detail page
+│   │   ├── profile/                      # User profile
+│   │   ├── search/                       # Search results
+│   │   ├── settings/                     # Application settings
+│   │   ├── globals.css                   # Global styles
+│   │   ├── layout.tsx                    # Root layout
+│   │   ├── page.tsx                      # Homepage
+│   │   └── error.tsx                     # Error boundaries
+│   ├── components/                       # React components
+│   │   ├── ui/                           # Base UI components
+│   │   ├── Player.tsx                    # Playback controls
+│   │   ├── Sidebar.tsx                   # Navigation sidebar
+│   │   ├── TopBar.tsx                    # Search and header
+│   │   ├── MediaCard.tsx                 # Album/artist cards
+│   │   ├── MediaShelf.tsx                # Horizontal scroll shelf
+│   │   ├── SongRow.tsx                   # Track list item
 │   │   └── ...
-│   ├── context/               # React contexts
-│   │   ├── PlayerContext.tsx  # Playback state
-│   │   └── ActionMenuContext.tsx # Context menus
-│   ├── hooks/                 # Custom React hooks
+│   ├── context/                          # React contexts
+│   │   ├── PlayerContext.tsx             # Playback state
+│   │   └── ActionMenuContext.tsx         # Context menus
+│   ├── hooks/                            # Custom React hooks
 │   │   ├── useColorExtraction.ts
 │   │   ├── useLibraryManager.ts
 │   │   ├── usePlaybackProgress.ts
 │   │   ├── usePlaylistManager.ts
 │   │   └── ...
-│   ├── lib/                   # Utility functions
+│   ├── lib/                              # Utility functions
 │   └── package.json
 ├── .gitignore
 └── .prettierrc.json
