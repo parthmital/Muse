@@ -651,17 +651,3 @@ Muse demonstrates a complete, production-quality music streaming implementation 
 - **Hackability**: Clean architecture allows easy extension and customisation
 
 Developers interested in recommendation systems, audio streaming, or modern React patterns will find the codebase informative. Music enthusiasts gain a personalised streaming experience without subscription fees or data collection concerns.
-
----
-
-## License and Credits
-
-No explicit license file is present in the repository. Add a LICENSE file to specify terms for your use case.
-
-The application integrates with:
-- Tidal (music metadata and streaming)
-- Last.fm (scrobbling and tags)
-- Spotify (audio features)
-- MusicBrainz (canonical identifiers)
-
-Font used: Sansation by Bernd Montag (via Google Fonts)
