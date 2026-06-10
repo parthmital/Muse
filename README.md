@@ -80,39 +80,39 @@ Muse addresses these gaps by providing:
 
 ### Backend Services
 
-| Component | Technology | Version |
-|-----------|------------|---------|
-| Runtime | Node.js | 20+ |
-| Language | TypeScript | 5.4.5 |
-| Framework | Fastify | 4.27.0 |
-| Database | better-sqlite3 | 12.8.0 |
-| Validation | Zod | 3.23.8 |
-| Logging | Pino | 9.2.0 |
-| Queue | fastq | 1.17.1 |
-| Scheduling | node-schedule | 2.1.1 |
-| HTTP Client | axios | 1.7.2 |
+| Component   | Technology     | Version |
+| ----------- | -------------- | ------- |
+| Runtime     | Node.js        | 20+     |
+| Language    | TypeScript     | 5.4.5   |
+| Framework   | Fastify        | 4.27.0  |
+| Database    | better-sqlite3 | 12.8.0  |
+| Validation  | Zod            | 3.23.8  |
+| Logging     | Pino           | 9.2.0   |
+| Queue       | fastq          | 1.17.1  |
+| Scheduling  | node-schedule  | 2.1.1   |
+| HTTP Client | axios          | 1.7.2   |
 
 ### Python Microservice
 
-| Component | Technology | Version |
-|-----------|------------|---------|
-| Framework | FastAPI | 0.135.2 |
-| Server | Uvicorn | 0.42.0 |
-| Embeddings | sentence-transformers | 2.7.0 |
-| ML Framework | PyTorch | 2.3.0 |
-| Vector Search | FAISS (CPU/GPU) | Latest |
-| Numerical | NumPy | 1.26.4 |
+| Component     | Technology            | Version |
+| ------------- | --------------------- | ------- |
+| Framework     | FastAPI               | 0.135.2 |
+| Server        | Uvicorn               | 0.42.0  |
+| Embeddings    | sentence-transformers | 2.7.0   |
+| ML Framework  | PyTorch               | 2.3.0   |
+| Vector Search | FAISS (CPU/GPU)       | Latest  |
+| Numerical     | NumPy                 | 1.26.4  |
 
 ### Frontend
 
-| Component | Technology | Version |
-|-----------|------------|---------|
-| Framework | Next.js | 16.1.6 |
-| UI Library | React | 19.2.3 |
-| Styling | TailwindCSS | 4.1.18 |
-| Data Fetching | SWR | 2.4.1 |
-| Streaming | Dash.js | 4.7.4 |
-| Compiler | React Compiler | 1.0.0 |
+| Component     | Technology     | Version |
+| ------------- | -------------- | ------- |
+| Framework     | Next.js        | 16.1.6  |
+| UI Library    | React          | 19.2.3  |
+| Styling       | TailwindCSS    | 4.1.18  |
+| Data Fetching | SWR            | 2.4.1   |
+| Streaming     | Dash.js        | 4.7.4   |
+| Compiler      | React Compiler | 1.0.0   |
 
 ### External Integrations
 
@@ -299,24 +299,28 @@ Muse/
 You need to run three components simultaneously. Each requires a separate terminal:
 
 **Terminal 1 - Embedding Service:**
+
 ```bash
 cd Backend/python
 uvicorn main:app --host 0.0.0.0 --port 6000
 ```
 
 **Terminal 2 - API Server:**
+
 ```bash
 cd Backend
 npm run dev
 ```
 
 **Terminal 3 - Worker Process:**
+
 ```bash
 cd Backend
 npm run worker
 ```
 
 **Terminal 4 - Frontend (Development):**
+
 ```bash
 cd Frontend
 npm run dev
@@ -355,13 +359,13 @@ Recommended workflow:
 
 ### Development Commands
 
-| Command | Purpose |
-|---------|---------|
-| `npm run dev` | Start API with hot reload |
-| `npm run worker` | Start job queue processor |
-| `npm run seed` | Seed database with initial catalog |
-| `npm run build-index` | Rebuild FAISS index manually |
-| `npm run build` | Compile TypeScript |
+| Command               | Purpose                            |
+| --------------------- | ---------------------------------- |
+| `npm run dev`         | Start API with hot reload          |
+| `npm run worker`      | Start job queue processor          |
+| `npm run seed`        | Seed database with initial catalog |
+| `npm run build-index` | Rebuild FAISS index manually       |
+| `npm run build`       | Compile TypeScript                 |
 
 ### Code Organisation Principles
 
@@ -376,28 +380,28 @@ Recommended workflow:
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NODE_ENV` | `development` | Runtime environment |
-| `PORT` | `5000` | API server port |
-| `API_BASE_URL` | `http://localhost:5000` | Public API URL |
-| `SQLITE_PATH` | `./data/music_rec.db` | Database file location |
-| `TIDAL_API_BASE_URL` | `http://localhost:4000` | Tidal API endpoint |
-| `EMBEDDING_SERVICE_URL` | `http://localhost:6000` | Python service URL |
-| `EMBEDDING_DIM` | `384` | Vector dimensions |
-| `LOG_LEVEL` | `info` | Pino log level |
-| `QUEUE_SIZE` | `25` | Default queue length |
-| `HOME_REC_COUNT` | `20` | Recommendations per shelf |
-| `MIX_TRACK_COUNT` | `30` | Tracks per generated mix |
-| `DIVERSITY_LAMBDA` | `0.3` | MMR diversity parameter |
-| `NOVELTY_WEIGHT` | `0.2` | Novel track preference |
-| `POPULARITY_WEIGHT` | `0.1` | Popularity influence |
-| `RECENCY_DECAY_DAYS` | `30` | History decay period |
-| `CACHE_MAX_ITEMS` | `5000` | LRU cache size |
-| `CACHE_TRACK_TTL_MS` | `3600000` | Track cache TTL (1 hour) |
-| `CACHE_REC_TTL_MS` | `120000` | Recommendation cache TTL (2 minutes) |
-| `WORKER_POLL_MS` | `500` | Job polling interval |
-| `WORKER_CONCURRENCY` | `4` | Parallel job limit |
+| Variable                | Default                 | Description                          |
+| ----------------------- | ----------------------- | ------------------------------------ |
+| `NODE_ENV`              | `development`           | Runtime environment                  |
+| `PORT`                  | `5000`                  | API server port                      |
+| `API_BASE_URL`          | `http://localhost:5000` | Public API URL                       |
+| `SQLITE_PATH`           | `./data/music_rec.db`   | Database file location               |
+| `TIDAL_API_BASE_URL`    | `http://localhost:4000` | Tidal API endpoint                   |
+| `EMBEDDING_SERVICE_URL` | `http://localhost:6000` | Python service URL                   |
+| `EMBEDDING_DIM`         | `384`                   | Vector dimensions                    |
+| `LOG_LEVEL`             | `info`                  | Pino log level                       |
+| `QUEUE_SIZE`            | `25`                    | Default queue length                 |
+| `HOME_REC_COUNT`        | `20`                    | Recommendations per shelf            |
+| `MIX_TRACK_COUNT`       | `30`                    | Tracks per generated mix             |
+| `DIVERSITY_LAMBDA`      | `0.3`                   | MMR diversity parameter              |
+| `NOVELTY_WEIGHT`        | `0.2`                   | Novel track preference               |
+| `POPULARITY_WEIGHT`     | `0.1`                   | Popularity influence                 |
+| `RECENCY_DECAY_DAYS`    | `30`                    | History decay period                 |
+| `CACHE_MAX_ITEMS`       | `5000`                  | LRU cache size                       |
+| `CACHE_TRACK_TTL_MS`    | `3600000`               | Track cache TTL (1 hour)             |
+| `CACHE_REC_TTL_MS`      | `120000`                | Recommendation cache TTL (2 minutes) |
+| `WORKER_POLL_MS`        | `500`                   | Job polling interval                 |
+| `WORKER_CONCURRENCY`    | `4`                     | Parallel job limit                   |
 
 ---
 
