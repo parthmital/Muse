@@ -25,7 +25,11 @@ import { Jimp } from "jimp";
 import pLimit from "p-limit";
 import { prisma } from "../db/prisma.js";
 import { lastfmClient } from "../services/lastfmClient.js";
-import { searchTidalTrack } from "../services/popularityService.js";
+import {
+	searchTidalTrack,
+	fetchAlbumsByTag,
+	fetchPopularAlbums,
+} from "../services/popularityService.js";
 import { logger } from "../logger.js";
 
 const log = logger.child({ scope: "tidal" });
@@ -735,7 +739,93 @@ async function fetchTidalImage(
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
+// ── Discover genres (Last.fm chart.getTopTags) ──────────────────────────────
+// chart.getTopTags returns real genres mixed with non-genre folksonomy tags
+// (moods, eras, library labels). Filter those so the Discover filter bar only
+// shows browsable genres.
+const NON_GENRE_TAGS = new Set([
+	"seen live",
+	"favorites",
+	"favourites",
+	"favorite",
+	"favourite",
+	"favorite songs",
+	"favourite songs",
+	"albums i own",
+	"awesome",
+	"love",
+	"beautiful",
+	"cool",
+	"male vocalists",
+	"female vocalists",
+	"60s",
+	"70s",
+	"80s",
+	"90s",
+	"00s",
+	"under 2000 listeners",
+	"spotify",
+	"all",
+]);
+
+function formatGenreLabel(tag: string): string {
+	return tag
+		.split(/[-\s]+/)
+		.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+		.join(" ")
+		.trim();
+}
+
 export async function tidalRoutes(app: FastifyInstance) {
+	// ── Discover: live genre list from Last.fm top tags ───────────────────────
+	app.get<{ Querystring: { limit?: string } }>(
+		"/tidal/genres",
+		async (req, reply) => {
+			reply.header(
+				"Cache-Control",
+				"public, max-age=3600, stale-while-revalidate=86400",
+			);
+			const limit = Math.min(Number(req.query.limit) || 12, 30);
+			try {
+				const tags = await lastfmClient.getTopTags(50);
+				const seen = new Set<string>();
+				const genres: Array<{ label: string; tag: string }> = [];
+				for (const t of tags) {
+					const tag = t.name?.trim();
+					if (!tag) continue;
+					const key = tag.toLowerCase();
+					if (NON_GENRE_TAGS.has(key) || seen.has(key)) continue;
+					seen.add(key);
+					genres.push({ label: formatGenreLabel(tag), tag });
+					if (genres.length >= limit) break;
+				}
+				return { genres };
+			} catch (err) {
+				log.error({ err }, "Failed to load genres from Last.fm");
+				return { genres: [] };
+			}
+		},
+	);
+
+	// ── Discover: top albums for a genre (or global when no tag) ───────────────
+	app.get<{ Querystring: { tag?: string; limit?: string } }>(
+		"/tidal/genre-albums",
+		async (req) => {
+			const tag = req.query.tag?.trim();
+			const limit = Math.min(Number(req.query.limit) || 16, 30);
+			try {
+				// No tag = the "All" tab → genuine global chart popularity.
+				const albums = tag
+					? await fetchAlbumsByTag(tag, limit)
+					: await fetchPopularAlbums(limit);
+				return { items: albums.map(normalizeAlbum).filter(Boolean) };
+			} catch (err) {
+				log.error({ err, tag }, "Failed to load genre albums");
+				return { items: [] };
+			}
+		},
+	);
+
 	// ── Image Proxy & Color Extraction ────────────────────────────────────────
 	app.get<{
 		Params: { pictureId: string };
@@ -755,16 +845,21 @@ export async function tidalRoutes(app: FastifyInstance) {
 			const { data: buffer, actualSize } = result;
 			const cacheKey = `${pictureId}:${type}`;
 
-			if (!colorCache.has(cacheKey)) {
-				const avgColor = await extractAverageColor(buffer);
-				if (avgColor) colorCache.set(cacheKey, avgColor);
-			}
-
 			reply.header("Content-Type", "image/jpeg");
 			reply.header("Cache-Control", "public, max-age=31536000, immutable");
 			reply.header("X-Image-Size", String(actualSize));
+
 			if (colorCache.has(cacheKey)) {
 				reply.header("X-Extracted-Color", colorCache.get(cacheKey)!);
+			} else {
+				// Extract the dominant colour OFF the response path. The image bytes
+				// return immediately; the /color endpoint (and later image requests)
+				// pick the value up from cache once this resolves.
+				void extractAverageColor(buffer)
+					.then((avgColor) => {
+						if (avgColor) colorCache.set(cacheKey, avgColor);
+					})
+					.catch(() => {});
 			}
 
 			return buffer;

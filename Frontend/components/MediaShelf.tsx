@@ -7,6 +7,7 @@ import { MediaCard, MediaItem } from "./MediaCard";
 
 interface MediaShelfProps {
 	title: string;
+	subtitle?: string;
 	items: MediaItem[];
 	titleClassName?: string;
 	disableHoverTransitions?: boolean;
@@ -14,6 +15,7 @@ interface MediaShelfProps {
 
 export function MediaShelf({
 	title,
+	subtitle,
 	items,
 	titleClassName,
 	disableHoverTransitions = false,
@@ -24,6 +26,7 @@ export function MediaShelf({
 		<div className="flex flex-col gap-4">
 			<SectionHeader
 				title={title}
+				subtitle={subtitle}
 				scrollRef={scrollRef}
 				titleClassName={titleClassName}
 			/>

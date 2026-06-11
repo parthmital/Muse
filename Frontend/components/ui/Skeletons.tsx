@@ -29,7 +29,7 @@ export function TopBarSkeleton() {
 
 export function SidebarSkeleton() {
 	return (
-		<div className="flex h-full min-w-15 shrink-0 flex-col gap-3 rounded-lg border border-neutral-800 p-4 whitespace-nowrap">
+		<div className="hidden h-full min-w-15 shrink-0 flex-col gap-3 rounded-lg border border-neutral-800 p-4 whitespace-nowrap md:flex">
 			{[1, 2, 3, 4, 5, 6].map((i) => (
 				<Skeleton key={i} className="h-11 w-full" />
 			))}

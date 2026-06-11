@@ -75,6 +75,7 @@ export type HomepageShelfItem = {
 
 export type HomepageShelf = {
 	title: string;
+	subtitle?: string;
 	type: string;
 	items: HomepageShelfItem[];
 };
@@ -1020,6 +1021,7 @@ export async function buildHomepageShelvesForExternalUser(
 	}
 
 	// Get top genre tags from Last.fm and create genre mixes
+	let topGenreSeed: string | null = null;
 	try {
 		let topGenres = await getTopGenreTags(user.id, SECTION_ITEM_COUNT);
 
@@ -1046,6 +1048,8 @@ export async function buildHomepageShelvesForExternalUser(
 				return true;
 			});
 		}
+
+		topGenreSeed = topGenres[0] ?? null;
 
 		// Build genre mixes - we now always have genres (from local DB or Last.fm)
 		for (let i = 0; i < SECTION_ITEM_COUNT; i++) {
@@ -1089,19 +1093,42 @@ export async function buildHomepageShelvesForExternalUser(
 		getArtistsSection(user.id),
 	]);
 
+	// "Why am I seeing this?" subtitles — purely descriptive metadata. The four
+	// shelves themselves are fixed; only their sourcing/labelling changes.
+	const anchorName = topArtists[0]?.name;
+	const hasRealAnchor = !!anchorName && !/^Artist \d+$/.test(anchorName);
+	const artistsMixSubtitle = hasRealAnchor
+		? `Because you listen to ${anchorName}`
+		: "Built around artists you love";
+	const genreMixSubtitle = topGenreSeed
+		? `More ${topGenreSeed} and your top genres`
+		: "Fresh picks from popular genres";
+
 	return {
 		userId: externalId,
 		generatedAt: Date.now(),
 		shelves: [
-			{ title: "Artists Mixes", type: "mixes", items: madeForYou },
-			{ title: "Genre Mixes", type: "playlists", items: genreMixes },
+			{
+				title: "Artists Mixes",
+				subtitle: artistsMixSubtitle,
+				type: "mixes",
+				items: madeForYou,
+			},
+			{
+				title: "Genre Mixes",
+				subtitle: genreMixSubtitle,
+				type: "playlists",
+				items: genreMixes,
+			},
 			{
 				title: "Albums For You",
+				subtitle: "Recommended from your listening",
 				type: "albums",
 				items: albums.slice(0, SECTION_ITEM_COUNT),
 			},
 			{
 				title: "Featured Artists",
+				subtitle: "Artists we think you'll like",
 				type: "artists",
 				items: artists.slice(0, SECTION_ITEM_COUNT),
 			},

@@ -43,7 +43,7 @@ function SidebarContent() {
 	const searchParams = useSearchParams();
 
 	return (
-		<div className="flex min-w-15 shrink-0 flex-col gap-3 rounded-lg border border-neutral-800 p-4 whitespace-nowrap">
+		<div className="hidden min-w-15 shrink-0 flex-col gap-3 rounded-lg border border-neutral-800 p-4 whitespace-nowrap md:flex">
 			{NAV_ITEMS.map((item) => {
 				let isActive = false;
 				if (item.href.startsWith("/library?filter=")) {

@@ -6,6 +6,7 @@ import { SettingsToggle } from "@/components/ui/SettingsToggle";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { ActionMenu } from "@/components/ui/ActionMenu";
 import { FallbackImage } from "@/components/ui/FallbackImage";
+import { usePlayer } from "@/context/PlayerContext";
 
 const QUALITY_OPTIONS = [
 	{ value: "auto", label: "Automatic" },
@@ -68,10 +69,17 @@ export default function SettingsPage() {
 	const [userName] = useState("Parth Mital");
 	const [userEmail] = useState("parth@example.com");
 
+	// Real playback engine settings (persisted in the player).
+	const {
+		smoothTransitions,
+		setSmoothTransitions,
+		normalizeVolume,
+		setNormalizeVolume,
+	} = usePlayer();
+
 	// Playback state
 	const [streamingQuality, setStreamingQuality] = useState("very-high");
 	const [downloadQuality, setDownloadQuality] = useState("very-high");
-	const [crossfade, setCrossfade] = useState(false);
 	const [gapless, setGapless] = useState(true);
 	const [automix, setAutomix] = useState(true);
 	const [explicitContent, setExplicitContent] = useState(true);
@@ -149,6 +157,15 @@ export default function SettingsPage() {
 					/>
 				</SettingsOption>
 				<SettingsOption
+					label="Volume normalization"
+					description="Levels loudness across tracks so nothing is jarringly loud or quiet."
+				>
+					<SettingsToggle
+						enabled={normalizeVolume}
+						onChange={setNormalizeVolume}
+					/>
+				</SettingsOption>
+				<SettingsOption
 					label="Data Saver"
 					description="Sets your audio quality to low and disables canvases."
 				>
@@ -160,9 +177,12 @@ export default function SettingsPage() {
 			<SettingsSection title="Playback">
 				<SettingsOption
 					label="Crossfade"
-					description="Allows you to crossfade between songs."
+					description="Smoothly fades the end of each track into the next."
 				>
-					<SettingsToggle enabled={crossfade} onChange={setCrossfade} />
+					<SettingsToggle
+						enabled={smoothTransitions}
+						onChange={setSmoothTransitions}
+					/>
 				</SettingsOption>
 				<SettingsOption
 					label="Gapless Playback"

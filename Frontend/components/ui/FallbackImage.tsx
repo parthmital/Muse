@@ -46,8 +46,7 @@ export function FallbackImage({
 						width={isFill ? undefined : (props.width ?? 48)}
 						height={isFill ? undefined : (props.height ?? 48)}
 						sizes={resolvedSizes}
-						loading="eager"
-						priority
+						loading="lazy"
 						className="object-contain opacity-40 brightness-0 invert"
 					/>
 				</div>
@@ -61,7 +60,9 @@ export function FallbackImage({
 			src={src}
 			alt={alt}
 			sizes={resolvedSizes}
-			loading={props.loading || "eager"}
+			// Lazy-load by default so off-screen covers don't block the network;
+			// callers pass `priority` for above-the-fold hero art.
+			loading={props.priority ? undefined : (props.loading ?? "lazy")}
 			priority={props.priority}
 			className={className}
 			onError={() => {

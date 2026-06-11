@@ -43,7 +43,7 @@ export function ArtistSidebar({
 		: cleanBio.substring(0, 300) + (shouldTruncate ? "..." : "");
 
 	return (
-		<div className="flex w-80 shrink-0 flex-col gap-6">
+		<div className="flex w-full shrink-0 flex-col gap-6 lg:w-80">
 			{/* Biography Section */}
 			<div className="flex flex-col gap-6">
 				<div className="relative aspect-video overflow-hidden rounded-lg border border-neutral-800/50">

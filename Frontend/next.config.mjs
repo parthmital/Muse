@@ -3,6 +3,9 @@ const nextConfig = {
 	reactCompiler: true,
 	images: {
 		dangerouslyAllowLocalIP: true,
+		// Serve modern formats; covers are immutable so cache them aggressively.
+		formats: ["image/avif", "image/webp"],
+		minimumCacheTTL: 31536000,
 		remotePatterns: [
 			{
 				protocol: "http",

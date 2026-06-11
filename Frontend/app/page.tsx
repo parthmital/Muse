@@ -1,14 +1,27 @@
+import { Suspense } from "react";
 import { MediaShelf } from "@/components/MediaShelf";
 import type { MediaItem, MediaType } from "@/components/MediaCard";
 import { getPersonalizedHomeShelves } from "@/lib/api";
+import { HomePageSkeleton } from "@/components/ui/Skeletons";
 import { logger } from "@/lib/logger";
 
 const DEV_USER_ID = "dev-user-001";
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
+export default function Home() {
+	// Flush the page shell + skeleton immediately, then stream shelves in as the
+	// backend resolves them — no blank screen while recommendations are built.
+	return (
+		<Suspense fallback={<HomePageSkeleton />}>
+			<HomeShelves />
+		</Suspense>
+	);
+}
+
+async function HomeShelves() {
 	let shelves: Array<{
 		title: string;
+		subtitle?: string;
 		items: MediaItem[];
 	}> = [];
 	let errorMessage: string | null = null;
@@ -19,6 +32,7 @@ export default async function Home() {
 			.filter((s) => s.items.length > 0)
 			.map((shelf) => ({
 				title: shelf.title,
+				subtitle: shelf.subtitle,
 				items: shelf.items.map((item) => ({
 					type: (item.type || "album") as MediaType,
 					title: item.title,
@@ -69,7 +83,12 @@ export default async function Home() {
 	return (
 		<>
 			{shelves.map((shelf) => (
-				<MediaShelf key={shelf.title} title={shelf.title} items={shelf.items} />
+				<MediaShelf
+					key={shelf.title}
+					title={shelf.title}
+					subtitle={shelf.subtitle}
+					items={shelf.items}
+				/>
 			))}
 		</>
 	);

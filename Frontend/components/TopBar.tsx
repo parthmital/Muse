@@ -47,11 +47,25 @@ function TopBarContent() {
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
+	const isSearch = pathname === "/search";
+
 	return (
 		<div className="flex items-center justify-between gap-4 whitespace-nowrap">
-			<div className="flex grow items-center gap-4">
+			{/* Mobile: brand or search input (nav lives in the bottom MobileNav) */}
+			<div className="flex grow items-center gap-4 md:hidden">
+				{isSearch ? (
+					<SearchInput autoFocus />
+				) : (
+					<span className="text-lg font-black tracking-tight text-white">
+						Muse
+					</span>
+				)}
+			</div>
+
+			{/* Desktop: full primary nav */}
+			<div className="hidden grow items-center gap-4 md:flex">
 				{MAIN_NAV.map((item) => {
-					if (item.label === "Search" && pathname === "/search") {
+					if (item.label === "Search" && isSearch) {
 						return <SearchInput key="search-input" autoFocus />;
 					}
 

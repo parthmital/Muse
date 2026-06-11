@@ -60,6 +60,51 @@
 		scrollbar-width: none;
 	}
 
+	/* ── Enter animations (tailwindcss-animate compatible) ──────────────────
+	   The codebase uses `animate-in fade-in zoom-in-95 slide-in-from-*` classes
+	   but ships no animate plugin, so they were no-ops. This lightweight layer
+	   implements them via a single composable keyframe. */
+	@keyframes muse-enter {
+		from {
+			opacity: var(--tw-enter-opacity, 1);
+			transform: translate3d(
+					var(--tw-enter-translate-x, 0),
+					var(--tw-enter-translate-y, 0),
+					0
+				)
+				scale(var(--tw-enter-scale, 1));
+		}
+	}
+
+	.animate-in {
+		animation: muse-enter 0.2s ease-out both;
+	}
+	.fade-in,
+	.fade-in-0 {
+		--tw-enter-opacity: 0;
+	}
+	.zoom-in-95 {
+		--tw-enter-scale: 0.95;
+	}
+	.slide-in-from-bottom-1 {
+		--tw-enter-translate-y: 0.25rem;
+	}
+	.slide-in-from-bottom-2 {
+		--tw-enter-translate-y: 0.5rem;
+	}
+	.slide-in-from-bottom-4 {
+		--tw-enter-translate-y: 1rem;
+	}
+	.slide-in-from-top-2 {
+		--tw-enter-translate-y: -0.5rem;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.animate-in {
+			animation: none;
+		}
+	}
+
 	.scrollbar-hide::-webkit-scrollbar {
 		display: none;
 	}

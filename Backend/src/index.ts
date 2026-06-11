@@ -14,9 +14,11 @@ import { browseRoutes } from "./api/browse.js";
 import { contextMenuRoutes } from "./api/contextMenu.js";
 import { actionRoutes } from "./api/actions.js";
 import { lastfmRoutes } from "./api/lastfm.js";
+import { authRoutes } from "./api/auth.js";
 import { prisma, initDb, disconnectDb } from "./db/prisma.js";
 import { ensureUser } from "./db/repositories/users.js";
 import { registerAuth } from "./auth.js";
+import { observe } from "./metrics.js";
 
 const app = Fastify({
 	logger: {
@@ -70,6 +72,73 @@ await app.register(cors, { origin: true });
 // Identity boundary — decorates request.authUserId (see src/auth.ts).
 registerAuth(app);
 
+// ── Per-route latency timing (p50/p95/p99 surfaced at /metrics) ─────────────
+app.addHook("onRequest", async (req) => {
+	(req as unknown as { _startNs: bigint })._startNs = process.hrtime.bigint();
+});
+app.addHook("onResponse", async (req) => {
+	const start = (req as unknown as { _startNs?: bigint })._startNs;
+	if (start !== undefined) {
+		const ms = Number(process.hrtime.bigint() - start) / 1e6;
+		const route =
+			(req as unknown as { routeOptions?: { url?: string } }).routeOptions
+				?.url ??
+			(req as unknown as { routerPath?: string }).routerPath ??
+			req.url.split("?")[0];
+		observe(`http ${req.method} ${route}`, ms);
+	}
+});
+
+// ── Browser/proxy cache-control for read-only routes ────────────────────────
+function cacheControlFor(method: string, url: string): string | null {
+	if (method !== "GET") return null;
+	const path = url.split("?")[0];
+	// Stream manifests carry short-lived signed CDN URLs — never cache.
+	if (path.includes("/stream")) return "private, no-store";
+	// Personalized / mutable surfaces.
+	if (
+		path.startsWith("/users/") ||
+		path === "/library" ||
+		path.startsWith("/playlists") ||
+		path.startsWith("/browse/recent-searches") ||
+		path.startsWith("/context-menu") ||
+		path.startsWith("/auth") ||
+		path === "/metrics" ||
+		path === "/health"
+	) {
+		return "private, no-store";
+	}
+	// Catalog metadata is effectively immutable — cache hard, revalidate lazily.
+	if (
+		path.startsWith("/tidal/albums/") ||
+		path.startsWith("/tidal/artists/") ||
+		path.startsWith("/tidal/tracks/") ||
+		path.startsWith("/tidal/mixes/") ||
+		path.startsWith("/tidal/playlists/")
+	) {
+		return "public, max-age=3600, stale-while-revalidate=86400";
+	}
+	// Discovery surfaces change more often but tolerate brief staleness.
+	if (
+		path.startsWith("/tidal/genres") ||
+		path.startsWith("/tidal/genre-albums") ||
+		path.startsWith("/tidal/search") ||
+		path.startsWith("/lastfm/") ||
+		path.startsWith("/browse/")
+	) {
+		return "public, max-age=300, stale-while-revalidate=3600";
+	}
+	return null;
+}
+
+app.addHook("onSend", async (req, reply, payload) => {
+	if (!reply.getHeader("Cache-Control")) {
+		const cc = cacheControlFor(req.method, req.url);
+		if (cc) reply.header("Cache-Control", cc);
+	}
+	return payload;
+});
+
 await app.register(swagger, {
 	openapi: {
 		info: { title: "Music Rec Engine", version: "3.0.0" },
@@ -88,6 +157,7 @@ await app.register(browseRoutes);
 await app.register(contextMenuRoutes);
 await app.register(actionRoutes);
 await app.register(lastfmRoutes);
+await app.register(authRoutes);
 
 app.setErrorHandler((error, request, reply) => {
 	app.log.error(

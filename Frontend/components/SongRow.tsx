@@ -101,7 +101,9 @@ export function SongRow({
 			openOnClick={false}
 			trigger={
 				<div
-					className={`group/row grid cursor-pointer items-center gap-6 rounded-lg px-4 py-2 transition-colors ${
+					// content-visibility skips render/layout work for off-screen rows —
+					// cheap windowing for long track lists without a virtualization dep.
+					className={`group/row grid cursor-pointer items-center gap-6 rounded-lg px-4 py-2 transition-colors [content-visibility:auto] [contain-intrinsic-size:0_56px] ${
 						isCurrentTrack && isPlaying
 							? "bg-neutral-900"
 							: "hover:bg-neutral-900"

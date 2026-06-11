@@ -189,12 +189,38 @@ export function useSongActions() {
 		itemId: string,
 		currentState: boolean,
 	) => {
-		if (currentState) {
-			await removeFromLibrary(itemType, itemId);
-		} else {
-			await addToLibrary(itemType, itemId);
-		}
-		mutateLibrary();
+		type Lib = {
+			library: { itemType: string; itemId: string; isPinned: boolean }[];
+		};
+		const optimisticData = (current?: Lib): Lib => {
+			const lib = current?.library ?? [];
+			if (currentState) {
+				return {
+					library: lib.filter(
+						(i) => !(i.itemType === itemType && i.itemId === itemId),
+					),
+				};
+			}
+			return { library: [...lib, { itemType, itemId, isPinned: false }] };
+		};
+
+		// Optimistic: flip the UI immediately, roll back if the request fails.
+		await mutateLibrary(
+			(async (): Promise<Lib | undefined> => {
+				if (currentState) {
+					await removeFromLibrary(itemType, itemId);
+				} else {
+					await addToLibrary(itemType, itemId);
+				}
+				return undefined;
+			})(),
+			{
+				optimisticData,
+				rollbackOnError: true,
+				revalidate: true,
+				populateCache: false,
+			},
+		);
 	};
 
 	const toggleLike = useCallback(

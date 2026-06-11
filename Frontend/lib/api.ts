@@ -130,6 +130,7 @@ export interface StreamInfo {
 
 export interface HomeShelf {
 	title: string;
+	subtitle?: string;
 	type: string;
 	items: Array<{
 		id: number | string;
@@ -267,6 +268,32 @@ export async function searchAlbums(
 		`/tidal/search?q=${encodeURIComponent(query)}&type=albums&limit=${limit}&offset=${offset}`,
 		{ signal },
 	);
+}
+
+export interface GenreTag {
+	label: string;
+	tag: string;
+}
+
+// Live genre list for the Discover filter bar, sourced from Last.fm top tags.
+export async function fetchGenres(
+	limit = 12,
+	signal?: AbortSignal,
+): Promise<{ genres: GenreTag[] }> {
+	return apiFetch(`/tidal/genres?limit=${limit}`, { signal });
+}
+
+// Top albums for a genre tag (null = global chart popularity), already resolved
+// to real TIDAL albums by the backend's relevance-gated matcher.
+export async function genreAlbums(
+	tag: string | null,
+	limit = 16,
+	signal?: AbortSignal,
+): Promise<SearchResult<TidalAlbum>> {
+	const q = tag
+		? `tag=${encodeURIComponent(tag)}&limit=${limit}`
+		: `limit=${limit}`;
+	return apiFetch(`/tidal/genre-albums?${q}`, { signal });
 }
 
 export async function searchPlaylists(

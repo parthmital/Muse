@@ -19,6 +19,11 @@ export const config = {
 	// carry an authenticated user. Centralised here so auth can replace it later.
 	devUserId: env("DEV_USER_ID", "dev-user-001"),
 
+	// HMAC secret for signing session tokens. A baked-in dev default keeps local
+	// setups zero-config; set JWT_SECRET in any real deployment.
+	jwtSecret: env("JWT_SECRET", "muse-dev-insecure-secret-change-me"),
+	jwtTtlSec: num("JWT_TTL_SEC", 60 * 60 * 24 * 30),
+
 	sqlitePath: env("SQLITE_PATH", "./data/music_rec.db"),
 
 	hifiBaseUrl: env("HIFI_API_BASE_URL", ""),

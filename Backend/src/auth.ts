@@ -13,6 +13,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "./config.js";
+import { verifyToken } from "./jwt.js";
 
 declare module "fastify" {
 	interface FastifyRequest {
@@ -27,6 +28,18 @@ declare module "fastify" {
 export function registerAuth(app: FastifyInstance): void {
 	app.decorateRequest("authUserId", "");
 	app.addHook("onRequest", async (req: FastifyRequest) => {
+		// 1) Bearer token — the real identity path.
+		const authz = req.headers["authorization"];
+		const bearer = Array.isArray(authz) ? authz[0] : authz;
+		if (bearer && bearer.startsWith("Bearer ")) {
+			const payload = verifyToken(bearer.slice(7).trim());
+			if (payload?.sub) {
+				req.authUserId = payload.sub;
+				return;
+			}
+		}
+
+		// 2) Legacy x-user-id header → dev user. Keeps existing clients working.
 		const header = req.headers["x-user-id"];
 		const value = Array.isArray(header) ? header[0] : header;
 		req.authUserId = value?.trim() || config.devUserId;

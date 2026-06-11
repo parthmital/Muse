@@ -10,11 +10,13 @@ import React, {
 	useMemo,
 } from "react";
 import { Song } from "@/components/SongRow";
-import { getStreamInfo } from "@/lib/api";
+import { getStreamInfo, type StreamInfo } from "@/lib/api";
 import type { MediaPlayerClass } from "dashjs";
 
 interface PlayerContextType {
 	currentTrack: Song | null;
+	queue: Song[];
+	currentIndex: number;
 	isPlaying: boolean;
 	progress: number;
 	duration: number;
@@ -22,6 +24,8 @@ interface PlayerContextType {
 	audioQuality: string | null;
 	isShuffled: boolean;
 	repeatMode: "off" | "all" | "one";
+	smoothTransitions: boolean;
+	normalizeVolume: boolean;
 	playTrack: (track: Song) => void;
 	togglePlay: () => void;
 	seek: (time: number) => void;
@@ -29,13 +33,28 @@ interface PlayerContextType {
 	addToQueue: (track: Song) => void;
 	playNext: (track: Song) => void;
 	playPlaylist: (tracks: Song[], startIdx?: number) => void;
+	playFromQueue: (index: number) => void;
+	removeFromQueue: (index: number) => void;
+	moveInQueue: (from: number, to: number) => void;
 	skipToNext: () => void;
 	skipToPrev: () => void;
 	toggleShuffle: () => void;
 	toggleRepeat: () => void;
+	setSmoothTransitions: (enabled: boolean) => void;
+	setNormalizeVolume: (enabled: boolean) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
+
+const FADE_OUT_SEC = 1.4;
+const FADE_IN_SEC = 0.35;
+const PREFETCH_CACHE_LIMIT = 12;
+
+function readFlag(key: string, fallback: boolean): boolean {
+	if (typeof window === "undefined") return fallback;
+	const v = window.localStorage.getItem(key);
+	return v === null ? fallback : v === "true";
+}
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
 	const [currentTrack, setCurrentTrack] = useState<Song | null>(null);
@@ -44,82 +63,179 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 	const [duration, setDuration] = useState(0);
 	const [volume, setVolumeState] = useState(0.7);
 	const [audioQuality, setAudioQuality] = useState<string | null>(null);
-	const [, setQueue] = useState<Song[]>([]);
-	const [, setCurrentIndex] = useState(-1);
+	const [queue, setQueue] = useState<Song[]>([]);
+	const [currentIndex, setCurrentIndex] = useState(-1);
 	const [isShuffled, setIsShuffled] = useState(false);
 	const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("off");
+	const [smoothTransitions, setSmoothTransitionsState] = useState(true);
+	const [normalizeVolume, setNormalizeVolumeState] = useState(true);
 
 	const queueRef = useRef<Song[]>([]);
 	const indexRef = useRef(-1);
 	const repeatRef = useRef<"off" | "all" | "one">("off");
 	const shuffleRef = useRef(false);
+	const smoothRef = useRef(true);
+	const normalizeRef = useRef(true);
 
 	const audioRef = useRef<HTMLAudioElement | null>(null);
 	const dashPlayerRef = useRef<MediaPlayerClass | null>(null);
 	const progressRafRef = useRef<number | null>(null);
 	const blobUrlRef = useRef<string | null>(null);
 	const latestTimeRef = useRef(0);
+	const fadingOutRef = useRef(false);
 
-	const playTrackInternal = useCallback(async (track: Song) => {
-		if (!audioRef.current) return;
+	// Stream prefetch cache (next-track gapless), keyed by tidalId.
+	const prefetchRef = useRef<Map<number, StreamInfo>>(new Map());
 
-		setCurrentTrack(track);
-		setIsPlaying(true);
-		setProgress(0);
-		setAudioQuality(null);
+	// Web Audio graph for fade transitions + loudness leveling.
+	const audioCtxRef = useRef<AudioContext | null>(null);
+	const fadeGainRef = useRef<GainNode | null>(null);
+	const compressorRef = useRef<DynamicsCompressorNode | null>(null);
 
+	// Initialise toggles from localStorage on mount (client only).
+	useEffect(() => {
+		const smooth = readFlag("muse-smooth-transitions", true);
+		const norm = readFlag("muse-normalize-volume", true);
+		smoothRef.current = smooth;
+		normalizeRef.current = norm;
+		setSmoothTransitionsState(smooth);
+		setNormalizeVolumeState(norm);
+	}, []);
+
+	const ensureAudioGraph = useCallback(() => {
+		if (audioCtxRef.current || !audioRef.current) return;
 		try {
-			let streamUrl = track.streamUrl;
-			let manifestMimeType = "";
-			let manifest = "";
-
-			if (!streamUrl && track.tidalId) {
-				const info = await getStreamInfo(track.tidalId);
-				streamUrl = info.streamUrl ?? "";
-				manifestMimeType = info.manifestMimeType;
-				manifest = info.manifest;
-				setAudioQuality(info.audioQuality);
-			}
-
-			const audio = audioRef.current;
-			const dashPlayer = dashPlayerRef.current;
-
-			// Reset dash player before loading new content
-			if (dashPlayer) {
-				try {
-					dashPlayer.reset();
-				} catch {
-					// Ignore if not initialized
-				}
-			}
-
-			if (
-				manifestMimeType === "application/dash+xml" &&
-				manifest &&
-				dashPlayer
-			) {
-				if (blobUrlRef.current) {
-					URL.revokeObjectURL(blobUrlRef.current);
-					blobUrlRef.current = null;
-				}
-				const decoded = atob(manifest);
-				const blob = new Blob([decoded], { type: "application/dash+xml" });
-				const blobUrl = URL.createObjectURL(blob);
-				blobUrlRef.current = blobUrl;
-				dashPlayer.initialize(audio, blobUrl, true);
-			} else if (streamUrl) {
-				audio.src = streamUrl;
-				audio.play().catch(console.error);
-			} else {
-				// No stream available — show error state instead of loading dummy file
-				console.warn("No stream URL available for track:", track.title);
-				setIsPlaying(false);
-			}
-		} catch (err) {
-			console.error("Failed to load stream:", err);
-			setIsPlaying(false);
+			const Ctx =
+				window.AudioContext ||
+				(window as unknown as { webkitAudioContext: typeof AudioContext })
+					.webkitAudioContext;
+			if (!Ctx) return;
+			const ctx = new Ctx();
+			const source = ctx.createMediaElementSource(audioRef.current);
+			const compressor = ctx.createDynamicsCompressor();
+			// Gentle leveling/limiter — evens out loud masters without pumping.
+			compressor.threshold.value = normalizeRef.current ? -24 : 0;
+			compressor.knee.value = 30;
+			compressor.ratio.value = normalizeRef.current ? 3 : 1;
+			compressor.attack.value = 0.01;
+			compressor.release.value = 0.25;
+			const fadeGain = ctx.createGain();
+			fadeGain.gain.value = 1;
+			source.connect(compressor);
+			compressor.connect(fadeGain);
+			fadeGain.connect(ctx.destination);
+			audioCtxRef.current = ctx;
+			compressorRef.current = compressor;
+			fadeGainRef.current = fadeGain;
+		} catch {
+			// Web Audio unavailable — playback still works through the element directly.
 		}
 	}, []);
+
+	const rampFadeIn = useCallback(() => {
+		const ctx = audioCtxRef.current;
+		const gain = fadeGainRef.current;
+		if (!ctx || !gain) return;
+		const now = ctx.currentTime;
+		gain.gain.cancelScheduledValues(now);
+		if (smoothRef.current) {
+			gain.gain.setValueAtTime(0.0001, now);
+			gain.gain.linearRampToValueAtTime(1, now + FADE_IN_SEC);
+		} else {
+			gain.gain.setValueAtTime(1, now);
+		}
+	}, []);
+
+	const prefetchNext = useCallback(() => {
+		const q = queueRef.current;
+		const next = q[indexRef.current + 1];
+		if (!next?.tidalId) return;
+		if (prefetchRef.current.has(next.tidalId)) return;
+		getStreamInfo(next.tidalId)
+			.then((info) => {
+				if (prefetchRef.current.size >= PREFETCH_CACHE_LIMIT) {
+					const oldest = prefetchRef.current.keys().next().value;
+					if (oldest !== undefined) prefetchRef.current.delete(oldest);
+				}
+				prefetchRef.current.set(next.tidalId!, info);
+			})
+			.catch(() => {});
+	}, []);
+
+	const playTrackInternal = useCallback(
+		async (track: Song) => {
+			if (!audioRef.current) return;
+
+			setCurrentTrack(track);
+			setIsPlaying(true);
+			setProgress(0);
+			setAudioQuality(null);
+			fadingOutRef.current = false;
+
+			try {
+				ensureAudioGraph();
+				if (audioCtxRef.current?.state === "suspended") {
+					audioCtxRef.current.resume().catch(() => {});
+				}
+
+				let streamUrl = track.streamUrl;
+				let manifestMimeType = "";
+				let manifest = "";
+
+				if (!streamUrl && track.tidalId) {
+					const cached = prefetchRef.current.get(track.tidalId);
+					const info = cached ?? (await getStreamInfo(track.tidalId));
+					if (cached) prefetchRef.current.delete(track.tidalId);
+					streamUrl = info.streamUrl ?? "";
+					manifestMimeType = info.manifestMimeType;
+					manifest = info.manifest;
+					setAudioQuality(info.audioQuality);
+				}
+
+				const audio = audioRef.current;
+				const dashPlayer = dashPlayerRef.current;
+
+				if (dashPlayer) {
+					try {
+						dashPlayer.reset();
+					} catch {
+						// Ignore if not initialized
+					}
+				}
+
+				rampFadeIn();
+
+				if (
+					manifestMimeType === "application/dash+xml" &&
+					manifest &&
+					dashPlayer
+				) {
+					if (blobUrlRef.current) {
+						URL.revokeObjectURL(blobUrlRef.current);
+						blobUrlRef.current = null;
+					}
+					const decoded = atob(manifest);
+					const blob = new Blob([decoded], { type: "application/dash+xml" });
+					const blobUrl = URL.createObjectURL(blob);
+					blobUrlRef.current = blobUrl;
+					dashPlayer.initialize(audio, blobUrl, true);
+				} else if (streamUrl) {
+					audio.src = streamUrl;
+					audio.play().catch(console.error);
+				} else {
+					console.warn("No stream URL available for track:", track.title);
+					setIsPlaying(false);
+				}
+
+				// Warm the next track so transitions feel gapless.
+				prefetchNext();
+			} catch (err) {
+				console.error("Failed to load stream:", err);
+				setIsPlaying(false);
+			}
+		},
+		[ensureAudioGraph, rampFadeIn, prefetchNext],
+	);
 
 	const skipToNext = useCallback(() => {
 		const q = queueRef.current;
@@ -178,7 +294,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			shuffleRef.current = next;
 
 			if (next && queueRef.current.length > 1) {
-				// Shuffle queue but keep current track in place
 				const current = queueRef.current[indexRef.current];
 				const rest = queueRef.current.filter((_, i) => i !== indexRef.current);
 				for (let i = rest.length - 1; i > 0; i--) {
@@ -207,12 +322,33 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
 	useEffect(() => {
 		audioRef.current = new Audio();
+		audioRef.current.crossOrigin = "anonymous";
 		const audio = audioRef.current;
 
 		const handleTimeUpdate = () => {
 			latestTimeRef.current = audio.currentTime;
-			if (progressRafRef.current !== null) return;
 
+			// Fade-out near the end for smooth transitions.
+			if (
+				smoothRef.current &&
+				!fadingOutRef.current &&
+				audio.duration &&
+				repeatRef.current !== "one" &&
+				audio.duration - audio.currentTime <= FADE_OUT_SEC
+			) {
+				fadingOutRef.current = true;
+				const ctx = audioCtxRef.current;
+				const gain = fadeGainRef.current;
+				if (ctx && gain) {
+					const now = ctx.currentTime;
+					const remaining = Math.max(0.1, audio.duration - audio.currentTime);
+					gain.gain.cancelScheduledValues(now);
+					gain.gain.setValueAtTime(gain.gain.value, now);
+					gain.gain.linearRampToValueAtTime(0.0001, now + remaining);
+				}
+			}
+
+			if (progressRafRef.current !== null) return;
 			progressRafRef.current = window.requestAnimationFrame(() => {
 				progressRafRef.current = null;
 				setProgress(latestTimeRef.current);
@@ -276,6 +412,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		[playTrackInternal],
 	);
 
+	const playFromQueue = useCallback(
+		(index: number) => {
+			const q = queueRef.current;
+			if (index < 0 || index >= q.length) return;
+			indexRef.current = index;
+			setCurrentIndex(index);
+			playTrackInternal(q[index]);
+		},
+		[playTrackInternal],
+	);
+
 	const addToQueue = useCallback((track: Song) => {
 		setQueue((prev) => {
 			const next = [...prev, track];
@@ -284,10 +431,59 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		});
 	}, []);
 
-	const playNextFn = useCallback((track: Song) => {
+	const playNextFn = useCallback(
+		(track: Song) => {
+			setQueue((prev) => {
+				const next = [...prev];
+				next.splice(indexRef.current + 1, 0, track);
+				queueRef.current = next;
+				return next;
+			});
+			// A new "next" track invalidates the prefetch for the old next slot.
+			prefetchNext();
+		},
+		[prefetchNext],
+	);
+
+	const removeFromQueue = useCallback((index: number) => {
 		setQueue((prev) => {
+			if (index < 0 || index >= prev.length || index === indexRef.current) {
+				return prev;
+			}
+			const next = prev.filter((_, i) => i !== index);
+			if (index < indexRef.current) {
+				indexRef.current -= 1;
+				setCurrentIndex(indexRef.current);
+			}
+			queueRef.current = next;
+			return next;
+		});
+	}, []);
+
+	const moveInQueue = useCallback((from: number, to: number) => {
+		setQueue((prev) => {
+			if (
+				from < 0 ||
+				to < 0 ||
+				from >= prev.length ||
+				to >= prev.length ||
+				from === to
+			) {
+				return prev;
+			}
 			const next = [...prev];
-			next.splice(indexRef.current + 1, 0, track);
+			const [moved] = next.splice(from, 1);
+			next.splice(to, 0, moved);
+
+			// Keep the pointer on the currently-playing track.
+			const cur = indexRef.current;
+			let newCur = cur;
+			if (from === cur) newCur = to;
+			else if (from < cur && to >= cur) newCur = cur - 1;
+			else if (from > cur && to <= cur) newCur = cur + 1;
+			indexRef.current = newCur;
+			setCurrentIndex(newCur);
+
 			queueRef.current = next;
 			return next;
 		});
@@ -298,6 +494,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		if (isPlaying) {
 			audioRef.current.pause();
 		} else {
+			if (audioCtxRef.current?.state === "suspended") {
+				audioCtxRef.current.resume().catch(() => {});
+			}
 			audioRef.current.play().catch(console.error);
 		}
 		setIsPlaying(!isPlaying);
@@ -307,15 +506,53 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		if (!audioRef.current) return;
 		audioRef.current.currentTime = time;
 		setProgress(time);
+		// Seeking backwards out of the fade-out zone should cancel the fade.
+		if (
+			audioRef.current.duration &&
+			audioRef.current.duration - time > FADE_OUT_SEC &&
+			fadingOutRef.current
+		) {
+			fadingOutRef.current = false;
+			const ctx = audioCtxRef.current;
+			const gain = fadeGainRef.current;
+			if (ctx && gain) {
+				gain.gain.cancelScheduledValues(ctx.currentTime);
+				gain.gain.setValueAtTime(1, ctx.currentTime);
+			}
+		}
 	}, []);
 
 	const setVolume = useCallback((vol: number) => {
 		setVolumeState(vol);
 	}, []);
 
+	const setSmoothTransitions = useCallback((enabled: boolean) => {
+		smoothRef.current = enabled;
+		setSmoothTransitionsState(enabled);
+		if (typeof window !== "undefined") {
+			window.localStorage.setItem("muse-smooth-transitions", String(enabled));
+		}
+	}, []);
+
+	const setNormalizeVolume = useCallback((enabled: boolean) => {
+		normalizeRef.current = enabled;
+		setNormalizeVolumeState(enabled);
+		if (typeof window !== "undefined") {
+			window.localStorage.setItem("muse-normalize-volume", String(enabled));
+		}
+		const comp = compressorRef.current;
+		const ctx = audioCtxRef.current;
+		if (comp && ctx) {
+			comp.threshold.setValueAtTime(enabled ? -24 : 0, ctx.currentTime);
+			comp.ratio.setValueAtTime(enabled ? 3 : 1, ctx.currentTime);
+		}
+	}, []);
+
 	const value = useMemo(
 		() => ({
 			currentTrack,
+			queue,
+			currentIndex,
 			isPlaying,
 			progress,
 			duration,
@@ -323,6 +560,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			audioQuality,
 			isShuffled,
 			repeatMode,
+			smoothTransitions,
+			normalizeVolume,
 			playTrack,
 			togglePlay,
 			seek,
@@ -330,13 +569,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			addToQueue,
 			playNext: playNextFn,
 			playPlaylist,
+			playFromQueue,
+			removeFromQueue,
+			moveInQueue,
 			skipToNext,
 			skipToPrev,
 			toggleShuffle,
 			toggleRepeat,
+			setSmoothTransitions,
+			setNormalizeVolume,
 		}),
 		[
 			currentTrack,
+			queue,
+			currentIndex,
 			isPlaying,
 			progress,
 			duration,
@@ -344,6 +590,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			audioQuality,
 			isShuffled,
 			repeatMode,
+			smoothTransitions,
+			normalizeVolume,
 			playTrack,
 			togglePlay,
 			seek,
@@ -351,10 +599,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			addToQueue,
 			playNextFn,
 			playPlaylist,
+			playFromQueue,
+			removeFromQueue,
+			moveInQueue,
 			skipToNext,
 			skipToPrev,
 			toggleShuffle,
 			toggleRepeat,
+			setSmoothTransitions,
+			setNormalizeVolume,
 		],
 	);
 

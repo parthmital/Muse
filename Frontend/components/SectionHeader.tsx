@@ -5,6 +5,7 @@ import { IconButton } from "./ui/IconButton";
 
 interface SectionHeaderProps {
 	title: string;
+	subtitle?: string;
 	scrollRef?: RefObject<HTMLDivElement | null>;
 	titleClassName?: string;
 	controls?: boolean;
@@ -12,6 +13,7 @@ interface SectionHeaderProps {
 
 export function SectionHeader({
 	title,
+	subtitle,
 	scrollRef,
 	titleClassName = "text-xl font-bold",
 	controls = true,
@@ -51,8 +53,13 @@ export function SectionHeader({
 	};
 
 	return (
-		<div className="flex items-center justify-between">
-			<p className={`${titleClassName} line-clamp-1 text-white`}>{title}</p>
+		<div className="flex items-center justify-between gap-4">
+			<div className="min-w-0">
+				<p className={`${titleClassName} line-clamp-1 text-white`}>{title}</p>
+				{subtitle && (
+					<p className="line-clamp-1 text-sm text-neutral-400">{subtitle}</p>
+				)}
+			</div>
 			{controls && (
 				<div className="flex items-center gap-1">
 					<IconButton

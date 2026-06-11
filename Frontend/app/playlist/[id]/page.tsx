@@ -116,7 +116,7 @@ export default function PlaylistPage({
 	const playIcon = isThisPlaylistPlaying ? "Pause" : "Play";
 
 	return (
-		<div className="flex gap-6">
+		<div className="flex flex-col gap-6 lg:flex-row">
 			{/* Left Column: Playlist Content */}
 			<div className="flex min-w-0 flex-1 flex-col gap-6">
 				<div className="flex flex-col gap-6">
@@ -214,14 +214,14 @@ export default function PlaylistPage({
 				</div>
 			</div>
 
-			{/* Right Column: Sidebar */}
-			<div className="flex w-80 shrink-0 flex-col gap-6">
-				<div className="relative aspect-square w-full">
+			{/* Right Column: Sidebar (stacks on top on mobile) */}
+			<div className="order-first flex w-full shrink-0 flex-col gap-6 lg:order-none lg:w-80">
+				<div className="relative mx-auto aspect-square w-full max-w-xs lg:mx-0 lg:max-w-none">
 					<FallbackImage
 						src={playlistData?.playlist?.image || ""}
 						alt={title}
 						fill
-						sizes="320px"
+						sizes="(max-width: 1024px) 20rem, 320px"
 						className="rounded-lg object-cover"
 						priority
 						fallbackType="Playlist"
