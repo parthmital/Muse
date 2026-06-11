@@ -4,7 +4,7 @@ import { Song, SongRow } from "@/components/SongRow";
 
 interface ArtistHomeContentProps {
 	mostPlayed: Song[];
-	popular: (Song & { streams: string })[];
+	popular: Song[];
 }
 
 export function ArtistHomeContent({

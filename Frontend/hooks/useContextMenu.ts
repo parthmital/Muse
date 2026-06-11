@@ -5,6 +5,8 @@ import { useState, useCallback, useMemo } from "react";
 import {
 	getContextMenuState,
 	executeAction as apiExecuteAction,
+	addToLibrary,
+	removeFromLibrary,
 	API_BASE,
 	swrFetcher,
 } from "@/lib/api";
@@ -188,17 +190,9 @@ export function useSongActions() {
 		currentState: boolean,
 	) => {
 		if (currentState) {
-			await fetch(`${API_BASE}/library`, {
-				method: "DELETE",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ itemType, itemId }),
-			});
+			await removeFromLibrary(itemType, itemId);
 		} else {
-			await fetch(`${API_BASE}/library`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ itemType, itemId }),
-			});
+			await addToLibrary(itemType, itemId);
 		}
 		mutateLibrary();
 	};

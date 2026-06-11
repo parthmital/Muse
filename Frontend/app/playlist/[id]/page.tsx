@@ -13,8 +13,13 @@ import { usePlayer } from "@/context/PlayerContext";
 import { formatTotalDuration } from "@/utils/duration";
 import { DynamicActionMenu } from "@/components/DynamicActionMenu";
 
-import { getPlaylist } from "@/lib/api";
+import { getPlaylist, TidalPlaylist, TidalTrack } from "@/lib/api";
 import { tidalTrackToSong } from "@/lib/tidalAdapter";
+
+interface PlaylistData {
+	playlist: TidalPlaylist;
+	tracks: TidalTrack[];
+}
 
 const SONG_COMPARATORS: Record<string, (a: Song, b: Song) => number> = {
 	title: (a, b) => a.title.localeCompare(b.title),
@@ -33,7 +38,7 @@ export default function PlaylistPage({
 
 	const { playPlaylist, currentTrack, isPlaying } = usePlayer();
 
-	const [playlistData, setPlaylistData] = useState<any>(null);
+	const [playlistData, setPlaylistData] = useState<PlaylistData | null>(null);
 	const [, setIsLoading] = useState(true);
 
 	useEffect(() => {
@@ -92,7 +97,7 @@ export default function PlaylistPage({
 			isPlaying &&
 			currentTrack &&
 			playlistSongs.some(
-				(s: any) =>
+				(s: Song) =>
 					s.title === currentTrack.title && s.artist === currentTrack.artist,
 			),
 		[isPlaying, currentTrack, playlistSongs],

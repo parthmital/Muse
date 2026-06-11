@@ -64,6 +64,7 @@ export interface TidalArtist {
 
 export interface TidalAlbum {
 	id: number;
+	tidalId?: number | string;
 	title: string;
 	cover?: string | null;
 	vibrantColor?: string | null;
@@ -94,6 +95,11 @@ export interface TidalPlaylist {
 	duration?: number;
 	image?: string | null;
 	url?: string;
+	creator?: {
+		id?: number;
+		name?: string;
+		picture?: string | null;
+	} | null;
 }
 
 export interface TidalMix {
@@ -436,7 +442,7 @@ export async function getPlaylist(
 	playlistId: string,
 	limit = 100,
 	offset = 0,
-): Promise<{ playlist: any; tracks: TidalTrack[] }> {
+): Promise<{ playlist: TidalPlaylist; tracks: TidalTrack[] }> {
 	return apiFetch(
 		`/tidal/playlists/${playlistId}?limit=${limit}&offset=${offset}`,
 	);
@@ -519,6 +525,12 @@ export async function removeTrackFromPlaylist(
 	return apiFetch(`/playlists/${playlistId}/tracks/${trackId}`, {
 		method: "DELETE",
 	});
+}
+
+export async function getPlaylistTracks(
+	playlistId: string,
+): Promise<{ tracks: { track_id: string }[] }> {
+	return apiFetch(`/playlists/${playlistId}/tracks`);
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────

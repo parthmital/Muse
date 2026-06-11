@@ -46,6 +46,8 @@ interface IconButtonProps {
 	onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 	disabled?: boolean;
 	noHover?: boolean;
+	ariaLabel?: string;
+	ariaPressed?: boolean;
 }
 
 export function IconButton({
@@ -59,6 +61,8 @@ export function IconButton({
 	onClick,
 	disabled = false,
 	noHover = false,
+	ariaLabel,
+	ariaPressed,
 }: IconButtonProps) {
 	if (!icon || icon === "undefined") return null;
 
@@ -101,9 +105,11 @@ export function IconButton({
 		/>
 	);
 
+	const label = ariaLabel ?? alt;
+
 	if (href && !disabled) {
 		return (
-			<Link href={href} className={classes} title={alt}>
+			<Link href={href} className={classes} title={alt} aria-label={label}>
 				{content}
 			</Link>
 		);
@@ -116,6 +122,8 @@ export function IconButton({
 				disabled={disabled}
 				className={classes}
 				title={alt}
+				aria-label={label}
+				aria-pressed={ariaPressed}
 			>
 				{content}
 			</button>

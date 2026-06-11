@@ -134,6 +134,7 @@ export function MediaCard({
 							<IconButton
 								icon="Pin"
 								alt="Pinned"
+								ariaLabel="Pinned"
 								filled
 								className="rounded-full bg-black/60 backdrop-blur-md"
 							/>
@@ -153,6 +154,7 @@ export function MediaCard({
 									<IconButton
 										icon="More"
 										alt="More"
+										ariaLabel={`More options for ${item.title}`}
 										className="rounded-full bg-black/60 backdrop-blur-md"
 									/>
 								}

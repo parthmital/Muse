@@ -23,9 +23,12 @@ import {
 import axios from "axios";
 import { Jimp } from "jimp";
 import pLimit from "p-limit";
-import { getDb } from "../db/helpers.js";
+import { prisma } from "../db/prisma.js";
 import { lastfmClient } from "../services/lastfmClient.js";
 import { searchTidalTrack } from "../services/popularityService.js";
+import { logger } from "../logger.js";
+
+const log = logger.child({ scope: "tidal" });
 
 // ── Quality Chain ────────────────────────────────────────────────────────────
 
@@ -285,24 +288,20 @@ async function loadGenreMixPlaylist(
 	limit: number,
 	offset: number,
 ): Promise<LocalPlaylistData | null> {
-	const db = getDb();
-
 	// Get playlist metadata from DB
-	const playlist = db
-		.prepare(
-			`SELECT p.id, p.title, p.description, p.cover_url
-			 FROM playlists p
-			 WHERE p.id = ?
-			 LIMIT 1`,
-		)
-		.get(playlistId) as
-		| {
-				id: string;
-				title: string;
-				description: string | null;
-				cover_url: string | null;
-		  }
-		| undefined;
+	const playlistRows = await prisma.$queryRaw<
+		Array<{
+			id: string;
+			title: string;
+			description: string | null;
+			cover_url: string | null;
+		}>
+	>`
+		SELECT p.id, p.title, p.description, p.cover_url
+		 FROM playlists p
+		 WHERE p.id = ${playlistId}
+		 LIMIT 1`;
+	const playlist = playlistRows[0];
 
 	if (!playlist) return null;
 
@@ -311,11 +310,34 @@ async function loadGenreMixPlaylist(
 	const genre = genreMatch ? genreMatch[1] : playlist.title;
 
 	try {
-		// Fetch top tracks for this genre from Last.fm
-		const lastFmTracks = await lastfmClient.getTopTracksByTag(genre, 50);
+		// Fetch top tracks for this genre from Last.fm, then blend in a slice from
+		// a neighbouring genre (tag.getSimilar) for variety — the exploration mix.
+		const lastFmTracks = await lastfmClient.getTopTracksByTag(genre, 42);
+
+		try {
+			const neighbours = await lastfmClient.getSimilarTags(genre, 3);
+			const neighbour = neighbours[0]?.name;
+			if (neighbour) {
+				const neighbourTracks = await lastfmClient.getTopTracksByTag(
+					neighbour,
+					12,
+				);
+				const seenKeys = new Set(
+					lastFmTracks.map((t) => `${t.name}|${t.artist.name}`.toLowerCase()),
+				);
+				for (const t of neighbourTracks) {
+					const key = `${t.name}|${t.artist.name}`.toLowerCase();
+					if (seenKeys.has(key)) continue;
+					seenKeys.add(key);
+					lastFmTracks.push(t);
+				}
+			}
+		} catch {
+			// Variety is best-effort; the base genre tracks still stand.
+		}
 
 		if (!lastFmTracks.length) {
-			console.warn(`[TidalAPI] No tracks found for genre: ${genre}`);
+			log.warn({ genre }, "No tracks found for genre");
 			return {
 				playlist: {
 					id: playlist.id,
@@ -397,7 +419,7 @@ async function loadGenreMixPlaylist(
 			tracks,
 		};
 	} catch (error) {
-		console.error(`[TidalAPI] Failed to load genre mix for ${genre}:`, error);
+		log.error({ err: error, genre }, "Failed to load genre mix");
 		return {
 			playlist: {
 				id: playlist.id,
@@ -412,64 +434,58 @@ async function loadGenreMixPlaylist(
 	}
 }
 
-function loadLocalPlaylist(
+async function loadLocalPlaylist(
 	playlistId: string,
 	limit: number,
 	offset: number,
-): LocalPlaylistData | null {
-	const db = getDb();
-	const playlist = db
-		.prepare(
-			`SELECT p.id, p.title, p.description, p.cover_url
-			 FROM playlists p
-			 WHERE p.id = ?
-			 LIMIT 1`,
-		)
-		.get(playlistId) as
-		| {
-				id: string;
-				title: string;
-				description: string | null;
-				cover_url: string | null;
-		  }
-		| undefined;
+): Promise<LocalPlaylistData | null> {
+	const playlistRows = await prisma.$queryRaw<
+		Array<{
+			id: string;
+			title: string;
+			description: string | null;
+			cover_url: string | null;
+		}>
+	>`
+		SELECT p.id, p.title, p.description, p.cover_url
+		 FROM playlists p
+		 WHERE p.id = ${playlistId}
+		 LIMIT 1`;
+	const playlist = playlistRows[0];
 
 	if (!playlist) return null;
 
-	const aggregate = db
-		.prepare(
-			`SELECT COUNT(*) as total, COALESCE(SUM(t.duration), 0) as duration
-			 FROM playlist_tracks pt
-			 LEFT JOIN tracks t ON t.id = pt.track_id
-			 WHERE pt.playlist_id = ?`,
-		)
-		.get(playlistId) as { total: number; duration: number };
+	const aggregateRows = await prisma.$queryRaw<
+		Array<{ total: number; duration: number }>
+	>`
+		SELECT COUNT(*) as total, COALESCE(SUM(t.duration), 0) as duration
+		 FROM playlist_tracks pt
+		 LEFT JOIN tracks t ON t.id = pt.track_id
+		 WHERE pt.playlist_id = ${playlistId}`;
+	const aggregate = aggregateRows[0] ?? { total: 0, duration: 0 };
 
-	const tracks = db
-		.prepare(
-			`SELECT
-				pt.track_id,
-				t.title as track_title,
-				t.duration,
-				t.popularity,
-				t.explicit,
-				t.audio_quality,
-				t.isrc,
-				t.artist_id,
-				t.album_id,
-				ar.name as artist_name,
-				ar.picture_url as artist_picture,
-				al.title as album_title,
-				al.cover_url as album_cover
-			FROM playlist_tracks pt
-			LEFT JOIN tracks t ON t.id = pt.track_id
-			LEFT JOIN artists ar ON ar.id = t.artist_id
-			LEFT JOIN albums al ON al.id = t.album_id
-			WHERE pt.playlist_id = ?
-			ORDER BY pt.position ASC
-			LIMIT ? OFFSET ?`,
-		)
-		.all(playlistId, limit, offset) as any[];
+	const tracks = await prisma.$queryRaw<any[]>`
+		SELECT
+			pt.track_id,
+			t.title as track_title,
+			t.duration,
+			t.popularity,
+			t.explicit,
+			t.audio_quality,
+			t.isrc,
+			t.artist_id,
+			t.album_id,
+			ar.name as artist_name,
+			ar.picture_url as artist_picture,
+			al.title as album_title,
+			al.cover_url as album_cover
+		FROM playlist_tracks pt
+		LEFT JOIN tracks t ON t.id = pt.track_id
+		LEFT JOIN artists ar ON ar.id = t.artist_id
+		LEFT JOIN albums al ON al.id = t.album_id
+		WHERE pt.playlist_id = ${playlistId}
+		ORDER BY pt.position ASC
+		LIMIT ${limit} OFFSET ${offset}`;
 
 	return {
 		playlist: {
@@ -477,8 +493,8 @@ function loadLocalPlaylist(
 			title: playlist.title,
 			description: playlist.description,
 			coverUrl: playlist.cover_url,
-			numberOfTracks: aggregate.total ?? tracks.length,
-			duration: aggregate.duration ?? 0,
+			numberOfTracks: Number(aggregate.total) || tracks.length,
+			duration: Number(aggregate.duration) || 0,
 		},
 		tracks: tracks.map(localTrackToRaw),
 	};
@@ -493,8 +509,8 @@ function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
 	const max = Math.max(r, g, b),
 		min = Math.min(r, g, b);
 	let h = 0,
-		s = 0,
-		l = (max + min) / 2;
+		s = 0;
+	const l = (max + min) / 2;
 	if (max !== min) {
 		const d = max - min;
 		s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
@@ -545,9 +561,9 @@ function clamp(n: number, min: number, max: number): number {
 }
 
 function adjustColor(hex: string, mode: "brighten" | "darken"): string {
-	let r = parseInt(hex.slice(1, 3), 16);
-	let g = parseInt(hex.slice(3, 5), 16);
-	let b = parseInt(hex.slice(5, 7), 16);
+	const r = parseInt(hex.slice(1, 3), 16);
+	const g = parseInt(hex.slice(3, 5), 16);
+	const b = parseInt(hex.slice(5, 7), 16);
 
 	const [h, s0, l0] = rgbToHsl(r, g, b);
 	const s = clamp(s0 < 0.35 ? 0.45 : s0, 0.35, 0.9);
@@ -1140,7 +1156,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 		}
 
 		// Regular local playlist loading
-		const local = loadLocalPlaylist(playlistId, limit, offset);
+		const local = await loadLocalPlaylist(playlistId, limit, offset);
 		if (local) {
 			return {
 				playlist: {
@@ -1193,7 +1209,7 @@ export async function tidalRoutes(app: FastifyInstance) {
 		async (req, reply) => {
 			const { mixId } = req.params;
 
-			const local = loadLocalPlaylist(mixId, 100, 0);
+			const local = await loadLocalPlaylist(mixId, 100, 0);
 			if (local) {
 				return {
 					mix: {

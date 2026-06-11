@@ -10,7 +10,10 @@ import {
 	removeFromLibrary,
 	createPlaylist,
 	deletePlaylist,
+	executeAction,
 } from "@/lib/api";
+
+const DEV_USER_ID = "dev-user-001";
 
 export function useLibraryManager() {
 	const { data: libraryData, mutate: mutateLibrary } = useSWR<{
@@ -101,10 +104,34 @@ export function useLibraryManager() {
 	);
 
 	const togglePin = useCallback(
-		(_title: string, _currentState: boolean) => {
-			// TODO: wire to toggle_pin action endpoint
+		async (title: string, currentState: boolean) => {
+			// Resolve the library item type for this title so the backend
+			// action targets the right entity, mirroring toggle_like/toggle_library.
+			const type = libraryAlbums[title]
+				? "album"
+				: libraryPlaylists[title]
+					? "playlist"
+					: libraryArtists[title]
+						? "artist"
+						: "playlist";
+
+			// Optimistically flip the pinned flag locally before revalidating.
+			mutateLibrary(
+				(current) =>
+					current
+						? {
+								library: current.library.map((i) =>
+									i.itemId === title ? { ...i, isPinned: !currentState } : i,
+								),
+							}
+						: current,
+				false,
+			);
+
+			await executeAction("toggle_pin", type, title, DEV_USER_ID);
+			mutateLibrary();
 		},
-		[pinnedItems],
+		[libraryAlbums, libraryPlaylists, libraryArtists, mutateLibrary],
 	);
 
 	const addCustomPlaylist = useCallback(

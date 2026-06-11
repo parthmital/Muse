@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { FilterBar } from "@/components/FilterBar";
 import { MediaGrid } from "@/components/MediaGrid";
@@ -37,7 +37,7 @@ const GENRE_FILTERS = [
 	"Hip-Hop",
 ];
 
-export default function DiscoverPage() {
+function DiscoverContent() {
 	const searchParams = useSearchParams();
 	const router = useRouter();
 
@@ -143,5 +143,14 @@ export default function DiscoverPage() {
 				</div>
 			)}
 		</>
+	);
+}
+
+export default function DiscoverPage() {
+	// useSearchParams() requires a Suspense boundary during prerender/CSR bailout.
+	return (
+		<Suspense fallback={null}>
+			<DiscoverContent />
+		</Suspense>
 	);
 }

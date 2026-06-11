@@ -13,18 +13,15 @@ import {
 } from "./lastfmClient.js";
 import { hifiClient, HifiTrack, HifiArtist, HifiAlbum } from "./hifiClient.js";
 import { config } from "../config.js";
-import { getDb } from "../db/helpers.js";
+import { prisma } from "../db/prisma.js";
+import { logger } from "../logger.js";
+
+const log = logger.child({ scope: "popularity" });
 
 // Log configuration status on module load
 if (!config.lastfmApiKey) {
-	console.warn(
-		"[PopularityService] LASTFM_API_KEY not configured - will use local database fallbacks for trending/popular content",
-	);
-	console.warn(
-		"[PopularityService] To use real Last.fm data, create a .env file with: LASTFM_API_KEY=your_api_key",
-	);
-	console.warn(
-		"[PopularityService] Get your API key at: https://www.last.fm/api/account/create",
+	log.warn(
+		"LASTFM_API_KEY not configured — using local database fallbacks for trending/popular content. Get a key at https://www.last.fm/api/account/create",
 	);
 }
 
@@ -139,7 +136,7 @@ export async function fetchTrendingTracks(
 	const enriched: EnrichedTrack[] = [];
 
 	// Process in batches to avoid overwhelming Tidal API
-	const batchSize = 5;
+	const batchSize = config.tidalResolveBatch;
 	for (
 		let i = 0;
 		i < lastFmTracks.length && enriched.length < limit;
@@ -444,15 +441,14 @@ export async function fetchTrendingTracksFallback(
 	// Try Last.fm first
 	const tracks = await fetchTrendingTracks(minCount);
 	if (tracks.length >= minCount) {
-		console.log(
-			`[PopularityService] Using Last.fm trending tracks: ${tracks.length} found`,
-		);
+		log.debug({ found: tracks.length }, "Using Last.fm trending tracks");
 		return tracks;
 	}
 
 	// Fallback to keyword search if Last.fm fails or returns insufficient results
-	console.warn(
-		`[PopularityService] Last.fm returned insufficient results (${tracks.length}/${minCount}), falling back to keyword search`,
+	log.warn(
+		{ found: tracks.length, want: minCount },
+		"Last.fm trending insufficient, falling back to keyword search",
 	);
 
 	const queries = ["trending", "top hits", "popular", "viral", "new music"];
@@ -477,41 +473,28 @@ export async function fetchPopularArtistsFallback(
 	// Try Last.fm first
 	const artists = await fetchPopularArtists(minCount);
 	if (artists.length >= minCount) {
-		console.log(
-			`[PopularityService] Using Last.fm popular artists: ${artists.length} found`,
-		);
+		log.debug({ found: artists.length }, "Using Last.fm popular artists");
 		return artists;
 	}
 
 	// Fallback to local database artists ordered by popularity
-	console.warn(
-		`[PopularityService] Last.fm returned insufficient artists (${artists.length}/${minCount}), falling back to local database`,
+	log.warn(
+		{ found: artists.length, want: minCount },
+		"Last.fm artists insufficient, falling back to local database",
 	);
 
 	try {
-		const db = getDb();
-		const rows = db
-			.prepare(
-				`SELECT id, name, picture_url, popularity 
-				 FROM artists 
-				 ORDER BY popularity DESC, updated_at DESC 
-				 LIMIT ?`,
-			)
-			.all(minCount) as Array<{
-			id: string;
-			name: string;
-			picture_url: string | null;
-			popularity: number;
-		}>;
-
+		const rows = await prisma.artist.findMany({
+			orderBy: [{ popularity: "desc" }, { updatedAt: "desc" }],
+			take: minCount,
+			select: { id: true, name: true, pictureUrl: true, popularity: true },
+		});
 		if (rows.length > 0) {
-			console.log(
-				`[PopularityService] Using local database artists: ${rows.length} found`,
-			);
+			log.debug({ found: rows.length }, "Using local database artists");
 			return rows.map((row) => ({
 				id: row.id,
 				name: row.name,
-				picture: row.picture_url,
+				picture: row.pictureUrl,
 				popularity: row.popularity,
 			})) as HifiArtist[];
 		}
@@ -527,39 +510,34 @@ export async function fetchPopularAlbumsFallback(
 	// Try Last.fm first
 	const albums = await fetchPopularAlbums(minCount);
 	if (albums.length >= minCount) {
-		console.log(
-			`[PopularityService] Using Last.fm popular albums: ${albums.length} found`,
-		);
+		log.debug({ found: albums.length }, "Using Last.fm popular albums");
 		return albums;
 	}
 
 	// Fallback to local database albums ordered by popularity
-	console.warn(
-		`[PopularityService] Last.fm returned insufficient albums (${albums.length}/${minCount}), falling back to local database`,
+	log.warn(
+		{ found: albums.length, want: minCount },
+		"Last.fm albums insufficient, falling back to local database",
 	);
 
 	try {
-		const db = getDb();
-		const rows = db
-			.prepare(
-				`SELECT al.id, al.title, al.cover_url, MAX(t.popularity) as max_popularity
-				 FROM albums al
-				 JOIN tracks t ON t.album_id = al.id
-				 GROUP BY al.id
-				 ORDER BY max_popularity DESC, al.updated_at DESC
-				 LIMIT ?`,
-			)
-			.all(minCount) as Array<{
-			id: string;
-			title: string;
-			cover_url: string | null;
-			max_popularity: number;
-		}>;
+		const rows = await prisma.$queryRaw<
+			Array<{
+				id: string;
+				title: string;
+				cover_url: string | null;
+				max_popularity: number | null;
+			}>
+		>`
+			SELECT al.id, al.title, al.cover_url, MAX(t.popularity) as max_popularity
+			FROM albums al
+			JOIN tracks t ON t.album_id = al.id
+			GROUP BY al.id
+			ORDER BY max_popularity DESC, al.updated_at DESC
+			LIMIT ${minCount}`;
 
 		if (rows.length > 0) {
-			console.log(
-				`[PopularityService] Using local database albums: ${rows.length} found`,
-			);
+			log.debug({ found: rows.length }, "Using local database albums");
 			return rows.map((row) => ({
 				id: row.id,
 				title: row.title,

@@ -80,19 +80,35 @@ export function Player() {
 				<IconButton
 					icon={isPlaying ? "Pause" : "Play"}
 					alt={isPlaying ? "Pause" : "Play"}
+					ariaLabel={isPlaying ? "Pause" : "Play"}
+					ariaPressed={isPlaying}
 					onClick={togglePlay}
 				/>
-				<IconButton icon="Prev" alt="Previous" onClick={skipToPrev} />
-				<IconButton icon="Next" alt="Next" onClick={skipToNext} />
+				<IconButton
+					icon="Prev"
+					alt="Previous"
+					ariaLabel="Previous track"
+					onClick={skipToPrev}
+				/>
+				<IconButton
+					icon="Next"
+					alt="Next"
+					ariaLabel="Next track"
+					onClick={skipToNext}
+				/>
 				<IconButton
 					icon="Shuffle"
 					alt="Shuffle"
+					ariaLabel="Shuffle"
+					ariaPressed={isShuffled}
 					onClick={toggleShuffle}
 					filled={isShuffled}
 				/>
 				<IconButton
 					icon="Loop"
 					alt={`Repeat: ${repeatMode}`}
+					ariaLabel={`Repeat: ${repeatMode}`}
+					ariaPressed={repeatMode !== "off"}
 					onClick={toggleRepeat}
 					filled={repeatMode !== "off"}
 				/>
@@ -119,7 +135,7 @@ export function Player() {
 					</p>
 				</div>
 
-				<IconButton icon="Volume" alt="Volume" />
+				<IconButton icon="Volume" alt="Volume" ariaLabel="Volume" />
 				<div className="flex flex-1 items-center gap-3 min-w-0 overflow-hidden">
 					<TrackInfo
 						className="min-w-0 w-full"
@@ -131,14 +147,16 @@ export function Player() {
 			</div>
 
 			<div className="flex items-center gap-2">
-				<IconButton icon="Like" alt="Like" />
-				<IconButton icon="Queue" alt="Queue" />
+				<IconButton icon="Like" alt="Like" ariaLabel="Like" />
+				<IconButton icon="Queue" alt="Queue" ariaLabel="Queue" />
 				<DynamicActionMenu
 					type="track"
 					id={String(currentTrack?.tidalId || "")}
 					align="right"
 					placement="top"
-					trigger={<IconButton icon="More" alt="More" />}
+					trigger={
+						<IconButton icon="More" alt="More" ariaLabel="More options" />
+					}
 					song={currentTrack}
 				/>
 			</div>

@@ -1,4 +1,5 @@
-import { getDb, fromJson, toJson } from "../db/helpers.js";
+import { prisma } from "../db/prisma.js";
+import { fromJson, toJson } from "../db/helpers.js";
 import {
 	sessionCache,
 	type RecommendedTrack,
@@ -7,9 +8,6 @@ import {
 import { recommend } from "./recommender.js";
 import { config } from "../config.js";
 import { scheduleProfileUpdate } from "../workers/runner.js";
-
-const LOW_WATER_MARK = 5;
-const SESSION_TTL_MS = 3 * 60 * 60 * 1000;
 
 export async function initQueue(opts: {
 	userId: string;
@@ -42,13 +40,16 @@ export async function updateQueue(opts: {
 	if (!data) data = { tracks: [], playedIds: [] };
 
 	data.tracks = data.tracks.filter((t) => t.trackId !== currentTrackId);
-	data.playedIds = [...data.playedIds.slice(-199), currentTrackId];
+	data.playedIds = [
+		...data.playedIds.slice(-(config.playedIdsHistoryCap - 1)),
+		currentTrackId,
+	];
 
-	if (playedRatio >= 0.8) {
+	if (playedRatio >= config.highSignalCompletionRatio) {
 		scheduleProfileUpdate(userId);
 	}
 
-	if (data.tracks.length < LOW_WATER_MARK) {
+	if (data.tracks.length < config.queueLowWaterMark) {
 		const exclude = [...new Set(data.playedIds)];
 		const newTracks = await recommend({
 			userId,
@@ -83,36 +84,31 @@ async function persistQueue(
 	userId: string,
 	data: SessionQueueData,
 ) {
-	const db = getDb();
 	const nowUnix = Math.floor(Date.now() / 1000);
-	db.prepare(
-		`INSERT INTO session_queues (session_id, user_id, queue_json, played_ids, expires_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(session_id) DO UPDATE SET
-			queue_json = excluded.queue_json,
-			played_ids = excluded.played_ids,
-			expires_at = excluded.expires_at,
-			updated_at = excluded.updated_at`,
-	).run(
-		sessionId,
-		userId,
-		toJson(data.tracks),
-		toJson(data.playedIds),
-		nowUnix + SESSION_TTL_MS / 1000,
-		nowUnix,
-	);
+	const queueJson = toJson(data.tracks);
+	const playedIds = toJson(data.playedIds);
+	const expiresAt = nowUnix + Math.floor(config.sessionTtlMs / 1000);
+	await prisma.sessionQueue.upsert({
+		where: { sessionId },
+		create: {
+			sessionId,
+			userId,
+			queueJson,
+			playedIds,
+			expiresAt,
+			updatedAt: nowUnix,
+		},
+		update: { userId, queueJson, playedIds, expiresAt, updatedAt: nowUnix },
+	});
 }
 
 async function loadQueue(sessionId: string): Promise<SessionQueueData | null> {
-	const db = getDb();
-	const row = db
-		.prepare("SELECT * FROM session_queues WHERE session_id = ? LIMIT 1")
-		.get(sessionId) as any;
+	const row = await prisma.sessionQueue.findUnique({ where: { sessionId } });
 	if (!row) return null;
 	const nowUnix = Math.floor(Date.now() / 1000);
-	if (row.expires_at < nowUnix) return null;
+	if (row.expiresAt < nowUnix) return null;
 	return {
-		tracks: fromJson<RecommendedTrack[]>(row.queue_json, []),
-		playedIds: fromJson<string[]>(row.played_ids, []),
+		tracks: fromJson<RecommendedTrack[]>(row.queueJson, []),
+		playedIds: fromJson<string[]>(row.playedIds, []),
 	};
 }

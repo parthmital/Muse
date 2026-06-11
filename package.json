@@ -1,0 +1,18 @@
+{
+	"name": "muse",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Run the entire Muse stack (API, worker, frontend) with one command.",
+	"scripts": {
+		"dev": "concurrently -k -n hifi,api,worker,web -c green,blue,magenta,cyan \"cd hifi-api && .venv\\Scripts\\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000\" \"npm --prefix Backend run dev\" \"npm --prefix Backend run worker\" \"npm --prefix Frontend run dev\"",
+		"dev:core": "concurrently -k -n api,web -c blue,cyan \"npm --prefix Backend run dev\" \"npm --prefix Frontend run dev\"",
+		"build": "npm --prefix Backend run build && npm --prefix Frontend run build",
+		"test": "npm --prefix Backend test",
+		"lint": "npm --prefix Backend run lint && npm --prefix Frontend run lint",
+		"typecheck": "npm --prefix Backend run typecheck",
+		"install:all": "npm --prefix Backend install && npm --prefix Frontend install"
+	},
+	"devDependencies": {
+		"concurrently": "^9.1.0"
+	}
+}

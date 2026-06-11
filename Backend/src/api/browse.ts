@@ -1,13 +1,19 @@
 import { FastifyInstance } from "fastify";
-import { getDb, fromJson } from "../db/helpers.js";
-import {
-	buildDynamicSearchSections,
-	buildHomepageShelvesForExternalUser,
-} from "../services/homepageBuilder.js";
+import { z } from "zod";
+import { prisma } from "../db/prisma.js";
+import { fromJson, toJson } from "../db/helpers.js";
+import { buildDynamicSearchSections } from "../services/homepageBuilder.js";
+import { getHomepageShelves } from "../services/homepageCache.js";
+
+const SearchBody = z.object({
+	query: z.string().max(500).optional(),
+	itemType: z.string().max(50).optional(),
+	itemId: z.string().max(200).optional(),
+	imageUrl: z.string().max(2000).optional(),
+	metadata: z.record(z.unknown()).optional(),
+});
 
 export async function browseRoutes(app: FastifyInstance) {
-	const DEV_USER_ID = "dev-user-001";
-
 	app.get("/browse/search-sections", async () => {
 		return buildDynamicSearchSections();
 	});
@@ -43,24 +49,23 @@ export async function browseRoutes(app: FastifyInstance) {
 		};
 	});
 
-	app.get("/browse/recent-searches", async () => {
-		const db = getDb();
+	app.get("/browse/recent-searches", async (req) => {
 		try {
-			const history = db
-				.prepare(
-					"SELECT * FROM search_history WHERE user_id = ? ORDER BY searched_at DESC LIMIT 10",
-				)
-				.all(DEV_USER_ID) as any[];
+			const history = await prisma.searchHistory.findMany({
+				where: { userId: req.authUserId },
+				orderBy: { searchedAt: "desc" },
+				take: 10,
+			});
 
 			if (history.length > 0) {
 				return {
 					items: history.map((h) => {
-						const meta = fromJson(h.metadata, {} as any);
+						const meta = fromJson<Record<string, any>>(h.metadata, {});
 						return {
 							title: h.query || meta?.title || "Unknown",
-							type: h.item_type,
-							tidalId: h.item_id ? parseInt(h.item_id, 10) : undefined,
-							imageUrl: h.image_url,
+							type: h.itemType,
+							tidalId: h.itemId ? parseInt(h.itemId, 10) : undefined,
+							imageUrl: h.imageUrl,
 							...meta,
 						};
 					}),
@@ -73,29 +78,22 @@ export async function browseRoutes(app: FastifyInstance) {
 		return { items: [] };
 	});
 
-	app.post<{
-		Body: {
-			query?: string;
-			itemType?: string;
-			itemId?: string;
-			imageUrl?: string;
-			metadata?: any;
-		};
-	}>("/browse/searches", async (req) => {
-		const { query, itemType, itemId, imageUrl, metadata } = req.body;
-		const db = getDb();
-
-		db.prepare(
-			"INSERT INTO search_history (user_id, query, item_type, item_id, image_url, metadata, searched_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		).run(
-			DEV_USER_ID,
-			query || null,
-			itemType || null,
-			itemId || null,
-			imageUrl || null,
-			metadata ? JSON.stringify(metadata) : null,
-			Math.floor(Date.now() / 1000),
+	app.post("/browse/searches", async (req) => {
+		const { query, itemType, itemId, imageUrl, metadata } = SearchBody.parse(
+			req.body,
 		);
+
+		await prisma.searchHistory.create({
+			data: {
+				userId: req.authUserId,
+				query: query || null,
+				itemType: itemType || null,
+				itemId: itemId || null,
+				imageUrl: imageUrl || null,
+				metadata: metadata ? toJson(metadata) : null,
+				searchedAt: Math.floor(Date.now() / 1000),
+			},
+		});
 
 		return { success: true };
 	});
@@ -107,7 +105,7 @@ export async function browseRoutes(app: FastifyInstance) {
 			"public, max-age=30, stale-while-revalidate=120",
 		);
 		try {
-			const homepage = await buildHomepageShelvesForExternalUser(DEV_USER_ID);
+			const homepage = await getHomepageShelves(req.authUserId);
 			return { shelves: homepage.shelves };
 		} catch (error) {
 			req.log.error({ error }, "browse/home failed unexpectedly");

@@ -1,11 +1,11 @@
-import { randomUUID } from "node:crypto";
-import {
-	getDb,
-	resolveUser,
-	fromJson,
-	toJson,
-	type UserRow,
-} from "../db/helpers.js";
+import { Prisma, type User } from "@prisma/client";
+import { prisma } from "../db/prisma.js";
+import { fromJson } from "../db/helpers.js";
+import { ensureUser } from "../db/repositories/users.js";
+import { upsertHifiTrack } from "../db/repositories/catalog.js";
+import { config } from "../config.js";
+import { logger } from "../logger.js";
+import { isCompilationArtist } from "./artistFilters.js";
 import { hifiClient, type HifiTrack } from "./hifiClient.js";
 import { lastfmClient } from "./lastfmClient.js";
 import {
@@ -18,10 +18,12 @@ import {
 	fetchPopularArtistsFallback,
 	fetchPopularAlbumsFallback,
 	searchTidalArtist,
+	searchTidalTrack,
 } from "./popularityService.js";
 
-const SECTION_ITEM_COUNT = 10;
-const COLLECTION_TRACK_COUNT = 50;
+const log = logger.child({ scope: "homepage" });
+const SECTION_ITEM_COUNT = config.sectionItemCount;
+const COLLECTION_TRACK_COUNT = config.collectionTrackCount;
 
 function normalizeImageUrl(
 	value: string | null | undefined,
@@ -185,116 +187,38 @@ function ensureCount<T>(
 	return out;
 }
 
-function getUserInteractionCount(userId: string): number {
-	const db = getDb();
-	const row = db
-		.prepare("SELECT COUNT(*) as c FROM user_interactions WHERE user_id = ?")
-		.get(userId) as { c: number };
-	return row?.c ?? 0;
+async function getUserInteractionCount(userId: string): Promise<number> {
+	return prisma.userInteraction.count({ where: { userId } });
 }
 
-function resolveOrCreateUser(externalId: string): UserRow {
-	const db = getDb();
-	let user = resolveUser(externalId);
-	if (!user) {
-		const id = randomUUID();
-		db.prepare(
-			"INSERT INTO users (id, external_id, is_new, created_at, updated_at) VALUES (?, ?, 1, unixepoch(), unixepoch())",
-		).run(id, externalId);
-		user = resolveUser(externalId);
+export async function resolveOrCreateUser(externalId: string): Promise<User> {
+	// New homepage users are provisioned with the external id as their id.
+	return ensureUser(externalId, externalId, 1);
+}
+
+async function upsertTracks(tracks: HifiTrack[]): Promise<void> {
+	for (const t of tracks) {
+		if (!String(t.id)) continue;
+		await upsertHifiTrack(t);
 	}
-	if (!user) throw new Error(`Unable to resolve user ${externalId}`);
-	return user;
 }
 
-function upsertTracks(tracks: HifiTrack[]) {
-	if (!tracks.length) return;
-	const db = getDb();
-
-	const insertArtist = db.prepare(
-		"INSERT OR IGNORE INTO artists (id, name, popularity, picture_url, raw_api_data, updated_at) VALUES (?, ?, ?, ?, ?, unixepoch())",
-	);
-	const insertAlbum = db.prepare(
-		"INSERT OR IGNORE INTO albums (id, title, cover_url, vibrant_color, raw_api_data, updated_at) VALUES (?, ?, ?, ?, ?, unixepoch())",
-	);
-	const insertTrack = db.prepare(
-		`INSERT OR IGNORE INTO tracks 
-		(id, title, duration, bpm, key, key_scale, popularity, explicit, audio_quality, isrc, mix_ids, raw_api_data, artist_id, album_id, created_at, updated_at) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())`,
-	);
-	const insertFeatures = db.prepare(
-		"INSERT OR IGNORE INTO track_features (track_id, enrichment_status) VALUES (?, 'pending')",
-	);
-
-	const tx = db.transaction((input: HifiTrack[]) => {
-		for (const t of input) {
-			const trackId = String(t.id);
-			if (!trackId) continue;
-
-			if (t.artist?.id) {
-				insertArtist.run(
-					String(t.artist.id),
-					t.artist.name,
-					t.artist.popularity ?? null,
-					t.artist.picture ?? null,
-					toJson(t.artist),
-				);
-			}
-
-			if (t.album?.id) {
-				insertAlbum.run(
-					String(t.album.id),
-					t.album.title,
-					t.album.cover ?? null,
-					t.album.vibrantColor ?? null,
-					toJson(t.album),
-				);
-			}
-
-			insertTrack.run(
-				trackId,
-				t.title,
-				t.duration ?? null,
-				t.bpm ?? null,
-				t.key ?? null,
-				t.keyScale ?? null,
-				t.popularity ?? null,
-				t.explicit ? 1 : 0,
-				t.audioQuality ?? null,
-				t.isrc ?? null,
-				toJson(t.mixes ?? {}),
-				toJson(t),
-				t.artist?.id ? String(t.artist.id) : null,
-				t.album?.id ? String(t.album.id) : null,
-			);
-			insertFeatures.run(trackId);
-		}
-	});
-
-	tx(tracks);
-}
-
-function getTracksByIdsOrdered(ids: string[]): PoolTrack[] {
+async function getTracksByIdsOrdered(ids: string[]): Promise<PoolTrack[]> {
 	if (!ids.length) return [];
-	const db = getDb();
-	const placeholders = ids.map(() => "?").join(",");
-	const rows = db
-		.prepare(
-			`SELECT 
-				t.id as track_id,
-				t.title,
-				t.popularity,
-				t.artist_id,
-				ar.name as artist_name,
-				ar.picture_url as artist_picture_url,
-				al.title as album_title,
-				al.cover_url as cover_url
-			FROM tracks t
-			LEFT JOIN artists ar ON ar.id = t.artist_id
-			LEFT JOIN albums al ON al.id = t.album_id
-			WHERE t.id IN (${placeholders})`,
-		)
-		.all(...ids) as any[];
+	const rows = await prisma.$queryRaw<any[]>`
+		SELECT
+			t.id as track_id,
+			t.title,
+			t.popularity,
+			t.artist_id,
+			ar.name as artist_name,
+			ar.picture_url as artist_picture_url,
+			al.title as album_title,
+			al.cover_url as cover_url
+		FROM tracks t
+		LEFT JOIN artists ar ON ar.id = t.artist_id
+		LEFT JOIN albums al ON al.id = t.album_id
+		WHERE t.id IN (${Prisma.join(ids)})`;
 	const byId = new Map(
 		rows.map((row) => [String(row.track_id), toPoolTrack(row)]),
 	);
@@ -308,7 +232,7 @@ async function fetchExternalPopularTracks(
 	const tracks = await fetchTrendingTracksFallback(minCount * 2);
 	if (!tracks.length) return [];
 
-	upsertTracks(tracks);
+	await upsertTracks(tracks);
 	const ids = dedupeStrings(tracks.map((t) => String(t.id))).slice(
 		0,
 		minCount * 2,
@@ -320,7 +244,6 @@ async function buildTrackPool(
 	userId: string,
 	minCount: number,
 ): Promise<PoolTrack[]> {
-	const db = getDb();
 	const poolById = new Map<string, PoolTrack>();
 
 	const addTracks = (tracks: PoolTrack[]) => {
@@ -331,25 +254,22 @@ async function buildTrackPool(
 		}
 	};
 
-	const recentRows = db
-		.prepare(
-			`SELECT DISTINCT t.id as track_id, t.title, t.popularity, t.artist_id, ar.name as artist_name, ar.picture_url as artist_picture_url, al.title as album_title, al.cover_url
-			 FROM user_interactions ui
-			 JOIN tracks t ON t.id = ui.track_id
-			 LEFT JOIN artists ar ON ar.id = t.artist_id
-			 LEFT JOIN albums al ON al.id = t.album_id
-			 WHERE ui.user_id = ?
-			 ORDER BY ui.occurred_at DESC
-			 LIMIT 250`,
-		)
-		.all(userId) as any[];
+	const recentRows = await prisma.$queryRaw<any[]>`
+		SELECT DISTINCT t.id as track_id, t.title, t.popularity, t.artist_id, ar.name as artist_name, ar.picture_url as artist_picture_url, al.title as album_title, al.cover_url
+		 FROM user_interactions ui
+		 JOIN tracks t ON t.id = ui.track_id
+		 LEFT JOIN artists ar ON ar.id = t.artist_id
+		 LEFT JOIN albums al ON al.id = t.album_id
+		 WHERE ui.user_id = ${userId}
+		 ORDER BY ui.occurred_at DESC
+		 LIMIT 250`;
 	addTracks(recentRows.map(toPoolTrack));
 
-	if (getUserInteractionCount(userId) > 0) {
+	if ((await getUserInteractionCount(userId)) > 0) {
 		for (const surface of ["made_for_you", "daily_mix", "radio"] as const) {
 			try {
 				const recs = await recommend({ userId, surface, limit: 300 });
-				const recRows = getTracksByIdsOrdered(recs.map((r) => r.trackId));
+				const recRows = await getTracksByIdsOrdered(recs.map((r) => r.trackId));
 				addTracks(recRows);
 			} catch {
 				// Continue with fallbacks.
@@ -358,16 +278,13 @@ async function buildTrackPool(
 	}
 
 	if (poolById.size < minCount) {
-		const popularRows = db
-			.prepare(
-				`SELECT t.id as track_id, t.title, t.popularity, t.artist_id, ar.name as artist_name, ar.picture_url as artist_picture_url, al.title as album_title, al.cover_url
-				 FROM tracks t
-				 LEFT JOIN artists ar ON ar.id = t.artist_id
-				 LEFT JOIN albums al ON al.id = t.album_id
-				 ORDER BY t.popularity DESC, t.updated_at DESC
-				 LIMIT 600`,
-			)
-			.all() as any[];
+		const popularRows = await prisma.$queryRaw<any[]>`
+			SELECT t.id as track_id, t.title, t.popularity, t.artist_id, ar.name as artist_name, ar.picture_url as artist_picture_url, al.title as album_title, al.cover_url
+			 FROM tracks t
+			 LEFT JOIN artists ar ON ar.id = t.artist_id
+			 LEFT JOIN albums al ON al.id = t.album_id
+			 ORDER BY t.popularity DESC, t.updated_at DESC
+			 LIMIT 600`;
 		addTracks(popularRows.map(toPoolTrack));
 	}
 
@@ -384,59 +301,59 @@ async function buildTrackPool(
 		{ length: fallbackCount },
 		(_, i) => `sys-fallback-track-${i + 1}`,
 	);
-	const insertTrack = db.prepare(
-		`INSERT OR IGNORE INTO tracks (id, title, popularity, explicit, created_at, updated_at)
-		 VALUES (?, ?, ?, 0, unixepoch(), unixepoch())`,
+	await prisma.$transaction(
+		fallbackIds.flatMap((trackId, i) => [
+			prisma.track.upsert({
+				where: { id: trackId },
+				create: {
+					id: trackId,
+					title: `Popular Track ${i + 1}`,
+					popularity: 0,
+					explicit: 0,
+				},
+				update: {},
+			}),
+			prisma.trackFeatures.upsert({
+				where: { trackId },
+				create: { trackId, enrichmentStatus: "pending" },
+				update: {},
+			}),
+		]),
 	);
-	const insertFeature = db.prepare(
-		"INSERT OR IGNORE INTO track_features (track_id, enrichment_status) VALUES (?, 'pending')",
-	);
-	const tx = db.transaction(() => {
-		fallbackIds.forEach((trackId, i) => {
-			insertTrack.run(trackId, `Popular Track ${i + 1}`, 0);
-			insertFeature.run(trackId);
-		});
-	});
-	tx();
 
-	pool = getTracksByIdsOrdered(fallbackIds);
+	pool = await getTracksByIdsOrdered(fallbackIds);
 	return pool;
 }
 
-function persistSystemPlaylist(
+async function persistSystemPlaylist(
 	userId: string,
 	id: string,
 	title: string,
 	description: string,
 	coverUrl: string | null,
 	trackIds: string[],
-) {
-	const db = getDb();
-	const upsertPlaylist = db.prepare(
-		`INSERT INTO playlists (id, user_id, title, description, cover_url, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
-		ON CONFLICT(id) DO UPDATE SET
-			user_id = excluded.user_id,
-			title = excluded.title,
-			description = excluded.description,
-			cover_url = excluded.cover_url,
-			updated_at = excluded.updated_at`,
-	);
-	const clearTracks = db.prepare(
-		"DELETE FROM playlist_tracks WHERE playlist_id = ?",
-	);
-	const insertTrack = db.prepare(
-		"INSERT INTO playlist_tracks (playlist_id, track_id, position, added_at) VALUES (?, ?, ?, unixepoch())",
-	);
-
-	const tx = db.transaction(() => {
-		upsertPlaylist.run(id, userId, title, description, coverUrl);
-		clearTracks.run(id);
-		trackIds.slice(0, COLLECTION_TRACK_COUNT).forEach((trackId, idx) => {
-			insertTrack.run(id, trackId, idx + 1);
-		});
-	});
-	tx();
+): Promise<void> {
+	const nowSec = Math.floor(Date.now() / 1000);
+	const sliced = trackIds.slice(0, COLLECTION_TRACK_COUNT);
+	await prisma.$transaction([
+		prisma.playlist.upsert({
+			where: { id },
+			create: { id, userId, title, description, coverUrl },
+			update: { userId, title, description, coverUrl, updatedAt: nowSec },
+		}),
+		prisma.playlistTrack.deleteMany({ where: { playlistId: id } }),
+		...(sliced.length
+			? [
+					prisma.playlistTrack.createMany({
+						data: sliced.map((trackId, idx) => ({
+							playlistId: id,
+							trackId,
+							position: idx + 1,
+						})),
+					}),
+				]
+			: []),
+	]);
 }
 
 function selectTopArtists(
@@ -451,6 +368,7 @@ function selectTopArtists(
 
 	for (const track of pool) {
 		if (!track.artistId || !track.artistName) continue;
+		if (isCompilationArtist(track.artistName)) continue;
 		const existing = artistMap.get(track.artistId);
 		if (existing) {
 			existing.count += 1;
@@ -483,56 +401,214 @@ function selectTopArtists(
 	);
 }
 
+/**
+ * Real artists to anchor the "<Artist> Mix" shelf — the user's favourite
+ * artists when they have history, otherwise Last.fm chart artists (the same
+ * high-quality source as Featured Artists). Compilation/various-artist pseudo
+ * names are filtered out, with a pool-frequency fallback only if needed.
+ */
+async function getAnchorArtists(
+	userId: string,
+	pool: PoolTrack[],
+	count: number,
+): Promise<
+	Array<{ name: string; id: string | null; imageUrl: string | null }>
+> {
+	const out: Array<{
+		name: string;
+		id: string | null;
+		imageUrl: string | null;
+	}> = [];
+	const seen = new Set<string>();
+
+	const add = (name: string, id: string | null, imageUrl: string | null) => {
+		const key = name.trim().toLowerCase();
+		if (!key || seen.has(key) || isCompilationArtist(name)) return;
+		seen.add(key);
+		out.push({ name: name.trim(), id, imageUrl });
+	};
+
+	try {
+		const favourites = await getFavouriteArtists(userId, count * 2);
+		for (const fav of favourites) {
+			if (out.length >= count) break;
+			add(
+				fav.name,
+				fav.artistId != null ? String(fav.artistId) : null,
+				normalizeImageUrl(fav.pictureUrl ?? null),
+			);
+		}
+	} catch {
+		// Fall back to pool-derived artists below.
+	}
+
+	// Top up from the (already compilation-filtered) pool if we're short.
+	if (out.length < count) {
+		for (const artist of selectTopArtists(pool, count * 2)) {
+			if (out.length >= count) break;
+			add(artist.name, artist.id, artist.imageUrl);
+		}
+	}
+
+	return ensureCount(out, count, (i) => ({
+		name: `Artist ${i + 1}`,
+		id: null,
+		imageUrl: null,
+	}));
+}
+
 function buildMadeForYouTitle(artistName: string, _index: number): string {
 	return `${artistName} Mix`;
+}
+
+/**
+ * Order a mix's tracks so the named artist anchors it: that artist's own pool
+ * tracks first, then the rest of the (similarity-derived) pool for discovery.
+ * Pure local selection — no API calls — so it's safe on the request path.
+ */
+function pickArtistAnchoredTrackIds(
+	artistId: string | null,
+	poolIds: string[],
+	poolById: Map<string, PoolTrack>,
+	offset: number,
+	count: number,
+): string[] {
+	const own: string[] = [];
+	if (artistId) {
+		for (const id of poolIds) {
+			if (poolById.get(id)?.artistId === artistId) own.push(id);
+		}
+	}
+	const rest = pickTrackIds(poolIds, offset, count + own.length);
+	const ordered: string[] = [];
+	const seen = new Set<string>();
+	for (const id of [...own, ...rest]) {
+		if (seen.has(id)) continue;
+		seen.add(id);
+		ordered.push(id);
+		if (ordered.length >= count) break;
+	}
+	return ordered;
+}
+
+/**
+ * Bounded Last.fm expansion for an artist mix: the artist's top tracks plus a
+ * few similar artists' top tracks, resolved to playable Tidal tracks and
+ * persisted. Returns the new track IDs. Expensive (network) — only run during
+ * worker precompute, never on the request path.
+ */
+const MIX_SIMILAR_ARTISTS = 3;
+const MIX_ENRICH_TIDAL_CAP = 24;
+
+async function enrichArtistMixTrackIds(artistName: string): Promise<string[]> {
+	if (!artistName) return [];
+	try {
+		const [own, similar] = await Promise.all([
+			lastfmClient.getArtistTopTracks(artistName, 12),
+			lastfmClient.getSimilarArtists(artistName, MIX_SIMILAR_ARTISTS),
+		]);
+
+		const candidates = own.map((t) => ({
+			title: t.name,
+			artist: t.artist?.name ?? artistName,
+		}));
+
+		const similarTop = await Promise.allSettled(
+			similar
+				.slice(0, MIX_SIMILAR_ARTISTS)
+				.map((sa) => lastfmClient.getArtistTopTracks(sa.name, 6)),
+		);
+		for (const result of similarTop) {
+			if (result.status !== "fulfilled") continue;
+			for (const t of result.value) {
+				candidates.push({
+					title: t.name,
+					artist: t.artist?.name ?? "",
+				});
+			}
+		}
+
+		const resolved: HifiTrack[] = [];
+		const pool = candidates.slice(0, MIX_ENRICH_TIDAL_CAP);
+		const batchSize = config.tidalResolveBatch;
+		for (let i = 0; i < pool.length; i += batchSize) {
+			const batch = pool.slice(i, i + batchSize);
+			const settled = await Promise.allSettled(
+				batch.map((c) => searchTidalTrack(c.title, c.artist)),
+			);
+			for (const s of settled) {
+				if (s.status === "fulfilled" && s.value) resolved.push(s.value);
+			}
+		}
+
+		if (!resolved.length) return [];
+		await upsertTracks(resolved);
+		return dedupeStrings(resolved.map((t) => String(t.id)));
+	} catch {
+		return [];
+	}
 }
 
 function buildGenreMixTitle(genre: string): string {
 	return `${genre} Mix`;
 }
 
-// Cache for top tags to avoid repeated API calls
-let cachedTopTags: string[] | null = null;
-let cachedTopTagsTime = 0;
-const TOP_TAGS_CACHE_TTL = 1000 * 60 * 60; // 1 hour
+// Last.fm responses are cached in lastfmClient (SQLite), so no in-memory tag
+// cache is needed here.
+function formatTagNames(names: string[]): string[] {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const name of names) {
+		const formatted = name
+			.split(/[-\s]+/)
+			.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+			.join(" ")
+			.trim();
+		const key = formatted.toLowerCase();
+		if (!formatted || seen.has(key)) continue;
+		seen.add(key);
+		out.push(formatted);
+	}
+	return out;
+}
+
+/**
+ * Names of the artists a user most strongly engages with, drawn from their
+ * interactions and saved library. Used to derive a genre profile from
+ * Last.fm's artist.getTopTags when local track-feature genres are sparse.
+ */
+async function getSeedArtistNames(
+	userId: string,
+	limit: number,
+): Promise<string[]> {
+	const rows = await prisma.$queryRaw<Array<{ name: string }>>`
+		SELECT ar.name as name,
+			SUM(CASE WHEN ui.event_type IN ('like','save','follow','repeat','playlist_add') THEN 3
+					 WHEN ui.event_type = 'play' THEN 1
+					 WHEN ui.event_type = 'skip' THEN -1 ELSE 0 END) as score
+		 FROM user_interactions ui
+		 JOIN artists ar ON ar.id = ui.artist_id
+		 WHERE ui.user_id = ${userId} AND ar.name IS NOT NULL AND ar.name != ''
+		 GROUP BY ar.id
+		 ORDER BY score DESC
+		 LIMIT ${limit}`;
+	return dedupeStrings(rows.map((r) => r.name));
+}
 
 async function getTopGenreTags(
 	userId: string,
 	count: number,
 ): Promise<string[]> {
-	const db = getDb();
-	const user = db
-		.prepare("SELECT is_new FROM users WHERE id = ?")
-		.get(userId) as { is_new: number } | undefined;
-
-	// New users: fetch from Last.fm API
-	if (user?.is_new === 1) {
+	// New users (no activity at all): trending genres from Last.fm charts.
+	if ((await getUserInteractionCount(userId)) === 0) {
 		try {
 			const tags = await lastfmClient.getTopTags(50);
-			// Format tags: capitalize first letter of each word
-			const formattedTags = tags.map((t) =>
-				t.name
-					.split(/[-\s]+/)
-					.map(
-						(word: string) =>
-							word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
-					)
-					.join(" "),
-			);
-			// Filter out duplicates
-			const seen = new Set<string>();
-			const uniqueTags: string[] = [];
-			for (const tag of formattedTags) {
-				const key = tag.toLowerCase();
-				if (seen.has(key)) continue;
-				seen.add(key);
-				uniqueTags.push(tag);
-			}
-			return uniqueTags.slice(0, count);
+			const formatted = formatTagNames(tags.map((t) => t.name));
+			if (formatted.length) return formatted.slice(0, count);
 		} catch (error) {
-			console.error(
-				"[HomepageBuilder] Failed to fetch top tags from Last.fm for new user:",
-				error,
+			log.error(
+				{ err: error },
+				"Failed to fetch top tags from Last.fm for new user",
 			);
 			// Fall through to DB fallback
 		}
@@ -540,37 +616,54 @@ async function getTopGenreTags(
 
 	// Old users (or fallback): get top genres from DB based on user's listening history
 	try {
-		const genreRows = db
-			.prepare(
-				`SELECT tf.genre, COUNT(*) as c
-				 FROM track_features tf
-				 JOIN user_interactions ui ON ui.track_id = tf.track_id
-				 WHERE ui.user_id = ? AND tf.genre IS NOT NULL AND tf.genre != ''
-				 GROUP BY tf.genre
-				 ORDER BY c DESC
-				 LIMIT ?`,
-			)
-			.all(userId, count * 2) as Array<{ genre: string }>;
+		const genreRows = await prisma.$queryRaw<Array<{ genre: string }>>`
+			SELECT tf.genre, COUNT(*) as c
+			 FROM track_features tf
+			 JOIN user_interactions ui ON ui.track_id = tf.track_id
+			 WHERE ui.user_id = ${userId} AND tf.genre IS NOT NULL AND tf.genre != ''
+			 GROUP BY tf.genre
+			 ORDER BY c DESC
+			 LIMIT ${count * 2}`;
 
 		if (genreRows.length > 0) {
 			return dedupeStrings(genreRows.map((r) => r.genre)).slice(0, count);
 		}
 
+		// Track features are sparse (enrichment hasn't caught up): derive the
+		// user's genres from their favourite artists' Last.fm tags.
+		const seedArtists = await getSeedArtistNames(userId, 8);
+		if (seedArtists.length) {
+			const tagCounts = new Map<string, number>();
+			const tagLists = await Promise.allSettled(
+				seedArtists.map((name) => lastfmClient.getArtistTopTags(name, 5)),
+			);
+			for (const result of tagLists) {
+				if (result.status !== "fulfilled") continue;
+				for (const tag of result.value) {
+					tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+				}
+			}
+			if (tagCounts.size) {
+				const ranked = [...tagCounts.entries()]
+					.sort((a, b) => b[1] - a[1])
+					.map(([tag]) => tag);
+				const formatted = formatTagNames(ranked);
+				if (formatted.length) return formatted.slice(0, count);
+			}
+		}
+
 		// If no user history, fall back to global DB genres
-		const globalGenreRows = db
-			.prepare(
-				`SELECT genre, COUNT(*) as c
-				 FROM track_features
-				 WHERE genre IS NOT NULL AND genre != ''
-				 GROUP BY genre
-				 ORDER BY c DESC
-				 LIMIT ?`,
-			)
-			.all(count) as Array<{ genre: string }>;
+		const globalGenreRows = await prisma.$queryRaw<Array<{ genre: string }>>`
+			SELECT genre, COUNT(*) as c
+			 FROM track_features
+			 WHERE genre IS NOT NULL AND genre != ''
+			 GROUP BY genre
+			 ORDER BY c DESC
+			 LIMIT ${count}`;
 
 		return dedupeStrings(globalGenreRows.map((r) => r.genre)).slice(0, count);
 	} catch (error) {
-		console.error("[HomepageBuilder] Failed to fetch genres from DB:", error);
+		log.error({ err: error }, "Failed to fetch genres from DB");
 		// Final fallback: return some default genres
 		return [
 			"Rock",
@@ -595,7 +688,7 @@ async function generateGenreMixCover(tag: string): Promise<string | null> {
 		// Get top artists for this tag from Last.fm
 		const topArtists = await lastfmClient.getTopArtistsByTag(tag, 10);
 		if (!topArtists.length) {
-			console.warn(`[HomepageBuilder] No artists found for tag: ${tag}`);
+			log.warn({ tag }, "No artists found for tag");
 			return null;
 		}
 
@@ -611,15 +704,10 @@ async function generateGenreMixCover(tag: string): Promise<string | null> {
 			}
 		}
 
-		console.warn(
-			`[HomepageBuilder] No Tidal images found for any artist in ${tag} mix`,
-		);
+		log.warn({ tag }, "No Tidal images found for any artist in mix");
 		return null;
 	} catch (error) {
-		console.error(
-			`[HomepageBuilder] Failed to generate cover for tag ${tag}:`,
-			error,
-		);
+		log.error({ err: error, tag }, "Failed to generate cover for tag");
 		return null;
 	}
 }
@@ -648,7 +736,6 @@ function buildStationTitle(artistName: string): string {
 }
 
 async function getAlbumsSection(userId: string): Promise<HomepageShelfItem[]> {
-	const db = getDb();
 	const items: HomepageShelfItem[] = [];
 	const seen = new Set<string>();
 
@@ -668,18 +755,15 @@ async function getAlbumsSection(userId: string): Promise<HomepageShelfItem[]> {
 		if (items.length >= SECTION_ITEM_COUNT) return items;
 	}
 
-	const localRows = db
-		.prepare(
-			`SELECT 
-				al.id, al.title, al.cover_url, ar.name as artist_name
-			 FROM albums al
-			 LEFT JOIN tracks t ON t.album_id = al.id
-			 LEFT JOIN artists ar ON ar.id = t.artist_id
-			 GROUP BY al.id
-			 ORDER BY MAX(t.popularity) DESC, al.updated_at DESC
-			 LIMIT 100`,
-		)
-		.all() as any[];
+	const localRows = await prisma.$queryRaw<any[]>`
+		SELECT
+			al.id, al.title, al.cover_url, ar.name as artist_name
+		 FROM albums al
+		 LEFT JOIN tracks t ON t.album_id = al.id
+		 LEFT JOIN artists ar ON ar.id = t.artist_id
+		 GROUP BY al.id
+		 ORDER BY MAX(t.popularity) DESC, al.updated_at DESC
+		 LIMIT 100`;
 
 	for (const row of localRows) {
 		const key = String(row.id);
@@ -730,14 +814,13 @@ async function getAlbumsSection(userId: string): Promise<HomepageShelfItem[]> {
 }
 
 async function getArtistsSection(userId: string): Promise<HomepageShelfItem[]> {
-	const db = getDb();
 	const items: HomepageShelfItem[] = [];
 	const seen = new Set<string>();
 
 	const personalized = await getFavouriteArtists(userId, 50).catch(() => []);
 	for (const artist of personalized) {
 		const key = String(artist.artistId);
-		if (seen.has(key)) continue;
+		if (seen.has(key) || isCompilationArtist(artist.name)) continue;
 		seen.add(key);
 		items.push({
 			id: key,
@@ -749,20 +832,20 @@ async function getArtistsSection(userId: string): Promise<HomepageShelfItem[]> {
 		if (items.length >= SECTION_ITEM_COUNT) return items;
 	}
 
-	const localRows = db
-		.prepare(
-			"SELECT id, name, picture_url FROM artists ORDER BY popularity DESC, updated_at DESC LIMIT 100",
-		)
-		.all() as any[];
+	const localRows = await prisma.artist.findMany({
+		orderBy: [{ popularity: "desc" }, { updatedAt: "desc" }],
+		take: 100,
+		select: { id: true, name: true, pictureUrl: true },
+	});
 	for (const row of localRows) {
 		const key = String(row.id);
-		if (seen.has(key)) continue;
+		if (seen.has(key) || isCompilationArtist(row.name)) continue;
 		seen.add(key);
 		items.push({
 			id: key,
 			tidalId: key,
 			title: row.name ?? "Unknown Artist",
-			imageUrl: normalizeImageUrl(row.picture_url ?? null),
+			imageUrl: normalizeImageUrl(row.pictureUrl ?? null),
 			type: "artist",
 		});
 		if (items.length >= SECTION_ITEM_COUNT) return items;
@@ -801,37 +884,71 @@ async function getArtistsSection(userId: string): Promise<HomepageShelfItem[]> {
 
 export async function buildHomepageShelvesForExternalUser(
 	externalId: string,
+	options: { enrich?: boolean } = {},
 ): Promise<{
 	userId: string;
 	generatedAt: number;
 	shelves: HomepageShelf[];
 }> {
-	const user = resolveOrCreateUser(externalId);
-	const pool = await buildTrackPool(user.id, 180);
+	// `enrich` runs the heavy Last.fm + Tidal expansion (artist-centered mixes).
+	// The worker passes true; the request-path fallback passes false to stay fast.
+	const enrich = options.enrich ?? false;
+	const user = await resolveOrCreateUser(externalId);
+	const pool = await buildTrackPool(user.id, config.trackPoolSize);
 	const poolIds = pool.map((t) => t.trackId);
 	const poolById = new Map(pool.map((t) => [t.trackId, t]));
-	const topArtists = selectTopArtists(pool, 20);
+	const topArtists = await getAnchorArtists(user.id, pool, 20);
 	const daySeed = `${externalId}:${new Date().toISOString().slice(0, 10)}`;
 	const baseOffset = stableOffset(daySeed, Math.max(poolIds.length, 1));
 
+	// Cross-shelf dedup: a track used to anchor one mix shouldn't dominate the next.
+	const usedTrackIds = new Set<string>();
+
 	const madeForYou: HomepageShelfItem[] = [];
-	let genreMixes: HomepageShelfItem[] = [];
+	const genreMixes: HomepageShelfItem[] = [];
 
 	for (let i = 0; i < SECTION_ITEM_COUNT; i++) {
 		const artist = topArtists[i % topArtists.length];
 		const mixId = `sys-mix-${externalId}-${i + 1}`;
 		const mixTitle = buildMadeForYouTitle(artist.name, i);
-		const mixTrackIds = pickTrackIds(
+
+		// Center the mix on its artist using the (similarity-derived) pool, then
+		// top up with a bounded Last.fm expansion when enriching.
+		let candidateIds = pickArtistAnchoredTrackIds(
+			artist.id,
 			poolIds,
+			poolById,
 			baseOffset + i * 17,
 			COLLECTION_TRACK_COUNT,
 		);
+
+		if (enrich) {
+			const enriched = await enrichArtistMixTrackIds(artist.name);
+			if (enriched.length) {
+				const merged: string[] = [];
+				const seen = new Set<string>();
+				for (const id of [...enriched, ...candidateIds]) {
+					if (seen.has(id)) continue;
+					seen.add(id);
+					merged.push(id);
+				}
+				candidateIds = merged;
+			}
+		}
+
+		// Prefer tracks not already spent on an earlier mix (soft dedup).
+		const fresh = candidateIds.filter((id) => !usedTrackIds.has(id));
+		const mixTrackIds = (
+			fresh.length >= COLLECTION_TRACK_COUNT ? fresh : candidateIds
+		).slice(0, COLLECTION_TRACK_COUNT);
+		mixTrackIds.forEach((id) => usedTrackIds.add(id));
+
 		// Use the artist's image directly for the mix cover
 		const mixCover =
 			normalizeImageUrl(artist.imageUrl) ??
 			poolById.get(mixTrackIds[0])?.coverUrl ??
 			null;
-		persistSystemPlaylist(
+		await persistSystemPlaylist(
 			user.id,
 			mixId,
 			mixTitle,
@@ -856,9 +973,7 @@ export async function buildHomepageShelvesForExternalUser(
 
 		// If no local genres available, fetch directly from Last.fm chart.getTopTags
 		if (topGenres.length === 0) {
-			console.log(
-				"[HomepageBuilder] No local genres, fetching from Last.fm chart.getTopTags",
-			);
+			log.debug("No local genres, fetching from Last.fm chart.getTopTags");
 			const tags = await lastfmClient.getTopTags(SECTION_ITEM_COUNT);
 			// Format tags: capitalize first letter of each word
 			topGenres = tags.map((t) =>
@@ -894,7 +1009,7 @@ export async function buildHomepageShelvesForExternalUser(
 
 			// For genre mixes, we don't store track IDs - they are fetched dynamically
 			// from Last.fm tag.getTopTracks when the playlist is accessed
-			persistSystemPlaylist(
+			await persistSystemPlaylist(
 				user.id,
 				genreMixId,
 				genreMixTitle,
@@ -913,7 +1028,7 @@ export async function buildHomepageShelvesForExternalUser(
 			});
 		}
 	} catch (error) {
-		console.error("[HomepageBuilder] Failed to build genre mixes:", error);
+		log.error({ err: error }, "Failed to build genre mixes");
 		// Genre mixes section will be empty - homepage will still have other sections
 	}
 
@@ -964,16 +1079,11 @@ function extractTopValuesFromJsonArrays(
 export async function buildDynamicSearchSections(): Promise<{
 	categories: Array<{ title: string; items: string[] }>;
 }> {
-	const db = getDb();
-
-	const discoverItemsRaw = db
-		.prepare(
-			`SELECT DISTINCT title
-			 FROM playlists
-			 ORDER BY updated_at DESC
-			 LIMIT 40`,
-		)
-		.all() as Array<{ title: string }>;
+	const discoverItemsRaw = await prisma.$queryRaw<Array<{ title: string }>>`
+		SELECT DISTINCT title
+		 FROM playlists
+		 ORDER BY updated_at DESC
+		 LIMIT 40`;
 	const discoverItems = ensureCount(
 		dedupeStrings(discoverItemsRaw.map((r) => r.title)).slice(
 			0,
@@ -983,27 +1093,21 @@ export async function buildDynamicSearchSections(): Promise<{
 		(i) => `Discover Pick ${i + 1}`,
 	);
 
-	const genreRows = db
-		.prepare(
-			`SELECT genre, COUNT(*) as c
-			 FROM track_features
-			 WHERE genre IS NOT NULL AND genre != ''
-			 GROUP BY genre
-			 ORDER BY c DESC
-			 LIMIT 50`,
-		)
-		.all() as Array<{ genre: string }>;
+	const genreRows = await prisma.$queryRaw<Array<{ genre: string }>>`
+		SELECT genre, COUNT(*) as c
+		 FROM track_features
+		 WHERE genre IS NOT NULL AND genre != ''
+		 GROUP BY genre
+		 ORDER BY c DESC
+		 LIMIT 50`;
 	const genres = ensureCount(
 		dedupeStrings(genreRows.map((r) => r.genre)).slice(0, SECTION_ITEM_COUNT),
 		SECTION_ITEM_COUNT,
 		(i) => `Genre ${i + 1}`,
 	);
 
-	const moodRows = db
-		.prepare(
-			"SELECT mood_tags FROM track_features WHERE mood_tags IS NOT NULL LIMIT 400",
-		)
-		.all() as Array<{ mood_tags: string }>;
+	const moodRows = await prisma.$queryRaw<Array<{ mood_tags: string }>>`
+		SELECT mood_tags FROM track_features WHERE mood_tags IS NOT NULL LIMIT 400`;
 	const moodItems = ensureCount(
 		extractTopValuesFromJsonArrays(
 			moodRows.map((r) => r.mood_tags),
@@ -1013,9 +1117,8 @@ export async function buildDynamicSearchSections(): Promise<{
 		(i) => `Mood ${i + 1}`,
 	);
 
-	const themeRows = db
-		.prepare("SELECT genres FROM artists WHERE genres IS NOT NULL LIMIT 400")
-		.all() as Array<{ genres: string }>;
+	const themeRows = await prisma.$queryRaw<Array<{ genres: string }>>`
+		SELECT genres FROM artists WHERE genres IS NOT NULL LIMIT 400`;
 	const themes = ensureCount(
 		extractTopValuesFromJsonArrays(
 			themeRows.map((r) => r.genres),

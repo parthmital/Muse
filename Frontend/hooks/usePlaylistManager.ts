@@ -7,6 +7,7 @@ import {
 	swrFetcher,
 	addTrackToPlaylist,
 	removeTrackFromPlaylist,
+	getPlaylistTracks,
 } from "@/lib/api";
 
 export function usePlaylistManager() {
@@ -25,10 +26,7 @@ export function usePlaylistManager() {
 			if (!p) return;
 
 			// Fetch current tracks to check presence
-			const res = await fetch(`${API_BASE}/playlists/${p.id}/tracks`);
-			const tracksData = (await res.json()) as {
-				tracks: { track_id: string }[];
-			};
+			const tracksData = await getPlaylistTracks(p.id);
 			const isIn = tracksData.tracks?.some((t) => t.track_id === songKey);
 
 			if (isIn) {

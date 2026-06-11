@@ -1,6 +1,8 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { resolveUser, getDb } from "../db/helpers.js";
+import { resolveUser } from "../db/repositories/users.js";
+import { toggleLibraryItem, togglePin } from "../db/repositories/library.js";
+import { ensureSelf } from "../auth.js";
 
 const ActionBody = z.object({
 	userId: z.string(),
@@ -16,53 +18,21 @@ export async function actionRoutes(app: FastifyInstance) {
 		const { action } = req.params;
 		const { userId: externalId, type, id } = ActionBody.parse(req.body);
 
-		const user = resolveUser(externalId);
-		if (!user) return reply.status(404).send({ error: "User not found" });
+		if (!ensureSelf(req, reply, externalId)) return;
 
-		const db = getDb();
+		const user = await resolveUser(externalId);
+		if (!user) return reply.status(404).send({ error: "User not found" });
 
 		switch (action) {
 			case "toggle_like":
 			case "toggle_library": {
-				const existing = db
-					.prepare(
-						"SELECT id FROM user_library WHERE user_id = ? AND item_id = ? AND item_type = ? LIMIT 1",
-					)
-					.get(user.id, id, type) as { id: number } | undefined;
-
-				if (existing) {
-					db.prepare("DELETE FROM user_library WHERE id = ?").run(existing.id);
-					return { success: true, active: false };
-				} else {
-					db.prepare(
-						"INSERT INTO user_library (user_id, item_id, item_type) VALUES (?, ?, ?)",
-					).run(user.id, id, type);
-					return { success: true, active: true };
-				}
+				const active = await toggleLibraryItem(user.id, type, id);
+				return { success: true, active };
 			}
 
 			case "toggle_pin": {
-				const existing = db
-					.prepare(
-						"SELECT id, is_pinned FROM user_library WHERE user_id = ? AND item_id = ? AND item_type = ? LIMIT 1",
-					)
-					.get(user.id, id, type) as
-					| { id: number; is_pinned: number }
-					| undefined;
-
-				if (existing) {
-					const newPinned = existing.is_pinned ? 0 : 1;
-					db.prepare("UPDATE user_library SET is_pinned = ? WHERE id = ?").run(
-						newPinned,
-						existing.id,
-					);
-					return { success: true, active: !!newPinned };
-				} else {
-					db.prepare(
-						"INSERT INTO user_library (user_id, item_id, item_type, is_pinned) VALUES (?, ?, ?, 1)",
-					).run(user.id, id, type);
-					return { success: true, active: true };
-				}
+				const active = await togglePin(user.id, type, id);
+				return { success: true, active };
 			}
 
 			case "shuffle_play":

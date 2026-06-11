@@ -3,95 +3,90 @@
  * SQLite-backed job queue worker. Run as a separate process:
  *   npx tsx src/workers/runner.ts
  *
- * Jobs are polled every WORKER_POLL_MS ms.
+ * Jobs are polled every WORKER_POLL_MS ms and claimed with a lease, so a
+ * crashed worker's in-flight job is reaped and retried rather than stranded.
  * Concurrency is capped at WORKER_CONCURRENCY.
- * Nightly rebuild scheduled via node-schedule.
  */
 
-import schedule from "node-schedule";
 import pLimit from "p-limit";
-import { runMigrations } from "../db/client.js";
-import { getDb, fromJson, toJson } from "../db/helpers.js";
+import { fromJson } from "../db/helpers.js";
+import { initDb, disconnectDb } from "../db/prisma.js";
 import { config } from "../config.js";
+import { logger } from "../logger.js";
+import { incr } from "../metrics.js";
+import {
+	claimJobs,
+	completeJob,
+	failJob,
+	enqueueJob as repoEnqueueJob,
+	cleanupMaintenance,
+} from "../db/repositories/jobs.js";
 import { handleEnrichTrack } from "./jobs/enrichTrack.js";
 import { handleUpdateProfile } from "./jobs/updateProfile.js";
-import { handleRebuildIndex } from "./jobs/rebuildIndex.js";
+import { handleBuildHomepage } from "./jobs/buildHomepage.js";
 
-type JobType = "enrich_track" | "update_profile" | "rebuild_index";
+type JobType = "enrich_track" | "update_profile" | "build_homepage";
 
 const HANDLERS: Record<JobType, (payload: unknown) => Promise<void>> = {
 	enrich_track: handleEnrichTrack,
 	update_profile: handleUpdateProfile,
-	rebuild_index: handleRebuildIndex,
+	build_homepage: handleBuildHomepage,
 };
 
+const log = logger.child({ scope: "worker" });
 const limit = pLimit(config.workerConcurrency);
 let running = true;
 
 async function claimAndRun() {
-	const db = getDb();
-	const nowUnix = Math.floor(Date.now() / 1000);
-
-	const pending = db
-		.prepare(
-			"SELECT id, type, payload, attempts FROM jobs WHERE status = 'pending' AND scheduled_at <= ? LIMIT ?",
-		)
-		.all(nowUnix, config.workerConcurrency) as any[];
-
-	if (!pending.length) return;
-
-	const ids = pending.map((j: any) => j.id);
-	const placeholders = ids.map(() => "?").join(",");
-	db.prepare(
-		`UPDATE jobs SET status = 'running', started_at = ? WHERE id IN (${placeholders})`,
-	).run(nowUnix, ...ids);
+	const jobs = await claimJobs(config.workerConcurrency);
+	if (!jobs.length) return;
 
 	await Promise.all(
-		pending.map((job: any) =>
+		jobs.map((job) =>
 			limit(async () => {
 				const handler = HANDLERS[job.type as JobType];
 				if (!handler) {
-					db.prepare(
-						"UPDATE jobs SET status = 'failed', error = ?, completed_at = ? WHERE id = ?",
-					).run(
-						`Unknown job type: ${job.type}`,
-						Math.floor(Date.now() / 1000),
+					await failJob(
 						job.id,
+						config.jobMaxAttempts,
+						`Unknown job type: ${job.type}`,
 					);
+					log.warn({ jobId: job.id, type: job.type }, "Unknown job type");
 					return;
 				}
-
 				try {
-					const payload = fromJson(job.payload, {});
-					await handler(payload);
-					db.prepare(
-						"UPDATE jobs SET status = 'done', completed_at = ? WHERE id = ?",
-					).run(Math.floor(Date.now() / 1000), job.id);
+					await handler(fromJson(job.payload, {}));
+					await completeJob(job.id);
+					incr(`job_done:${job.type}`);
 				} catch (err) {
-					const attempts = (job.attempts ?? 0) + 1;
-					const max = 3;
-					const retryIn = attempts * 60;
-					db.prepare(
-						"UPDATE jobs SET status = ?, attempts = ?, scheduled_at = ?, error = ? WHERE id = ?",
-					).run(
-						attempts >= max ? "failed" : "pending",
-						attempts,
-						Math.floor(Date.now() / 1000) + retryIn,
-						String(err),
-						job.id,
-					);
+					await failJob(job.id, job.attempts, String(err));
+					incr(`job_failed:${job.type}`);
+					log.error({ jobId: job.id, type: job.type, err }, "Job failed");
 				}
 			}),
 		),
 	);
 }
 
+let lastCleanup = 0;
+async function cleanupExpired() {
+	const now = Date.now();
+	if (now - lastCleanup < config.jobCleanupIntervalMs) return;
+	lastCleanup = now;
+	try {
+		await cleanupMaintenance();
+	} catch (err) {
+		log.warn({ err }, "Maintenance cleanup failed (non-critical)");
+	}
+}
+
 async function poll() {
 	while (running) {
 		try {
 			await claimAndRun();
+			await cleanupExpired();
 		} catch (err) {
-			console.error("Worker poll error:", err);
+			log.error({ err }, "Worker poll error");
 		}
 		await sleep(config.workerPollMs);
 	}
@@ -101,23 +96,21 @@ function sleep(ms: number) {
 	return new Promise((r) => setTimeout(r, ms));
 }
 
-// ── Schedule nightly FAISS rebuild ────────────────────────────────────────────
-schedule.scheduleJob("0 3 * * *", () => enqueueJob("rebuild_index", {}));
-
 // ── Public helpers for enqueuing ──────────────────────────────────────────────
-export async function enqueueJob(type: JobType, payload: unknown) {
-	const db = getDb();
-	db.prepare(
-		"INSERT INTO jobs (type, payload, status, scheduled_at) VALUES (?, ?, 'pending', ?)",
-	).run(type, toJson(payload), Math.floor(Date.now() / 1000));
+export function enqueueJob(type: JobType, payload: unknown, dedupKey?: string) {
+	return repoEnqueueJob(type, payload, dedupKey ?? null);
 }
 
 export function scheduleEnrichTrack(trackId: string) {
-	enqueueJob("enrich_track", { trackId }).catch(console.error);
+	repoEnqueueJob("enrich_track", { trackId }, trackId).catch((err) =>
+		log.error({ err, trackId }, "Failed to enqueue enrich_track"),
+	);
 }
 
 export function scheduleProfileUpdate(userId: string) {
-	enqueueJob("update_profile", { userId }).catch(console.error);
+	repoEnqueueJob("update_profile", { userId }, userId).catch((err) =>
+		log.error({ err, userId }, "Failed to enqueue update_profile"),
+	);
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -125,16 +118,14 @@ if (
 	process.argv[1]?.endsWith("runner.ts") ||
 	process.argv[1]?.endsWith("runner.js")
 ) {
-	try {
-		runMigrations();
-	} catch (e) {
-		console.error("Migration error:", e);
-	}
-	console.log(
-		`Worker starting. poll=${config.workerPollMs}ms concurrency=${config.workerConcurrency}`,
+	await initDb();
+	log.info(
+		{ poll: config.workerPollMs, concurrency: config.workerConcurrency },
+		"Worker starting",
 	);
 	process.on("SIGINT", () => {
 		running = false;
+		void disconnectDb().finally(() => process.exit(0));
 	});
-	poll().then(() => console.log("Worker stopped."));
+	poll().then(() => log.info("Worker stopped"));
 }

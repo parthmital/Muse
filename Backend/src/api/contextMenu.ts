@@ -1,5 +1,7 @@
 import { FastifyInstance } from "fastify";
-import { resolveUser, getDb } from "../db/helpers.js";
+import { resolveUser } from "../db/repositories/users.js";
+import { getLibraryEntry } from "../db/repositories/library.js";
+import { ensureSelf } from "../auth.js";
 
 export async function contextMenuRoutes(app: FastifyInstance) {
 	app.get<{
@@ -11,24 +13,18 @@ export async function contextMenuRoutes(app: FastifyInstance) {
 
 		if (!externalId)
 			return reply.status(400).send({ error: "userId required" });
-		const user = resolveUser(externalId);
+		if (!ensureSelf(req, reply, externalId)) return;
+		const user = await resolveUser(externalId);
 		if (!user) return reply.status(404).send({ error: "User not found" });
 
 		const itemType = type === "video" ? "track" : type;
-		const db = getDb();
-		const inLibrary = db
-			.prepare(
-				"SELECT id, is_pinned FROM user_library WHERE user_id = ? AND item_id = ? AND item_type = ? LIMIT 1",
-			)
-			.get(user.id, id, itemType) as
-			| { id: number; is_pinned: number }
-			| undefined;
+		const inLibrary = await getLibraryEntry(user.id, itemType, id);
 
 		return {
 			id,
 			type,
 			inLibrary: !!inLibrary,
-			isPinned: inLibrary ? !!inLibrary.is_pinned : false,
+			isPinned: inLibrary ? !!inLibrary.isPinned : false,
 		};
 	});
 }

@@ -82,7 +82,6 @@ export function SongRow({
 		} else {
 			toggleLike(songKey);
 		}
-		console.log(`${!isLiked ? "Liked" : "Unliked"}: ${song.title}`);
 	};
 
 	const handleToggleLibrary = (e: React.MouseEvent) => {
@@ -92,9 +91,6 @@ export function SongRow({
 		} else {
 			toggleLibrary(songKey);
 		}
-		console.log(
-			`${!inLibrary ? "Added to" : "Removed from"} library: ${song.title}`,
-		);
 	};
 
 	return (
@@ -123,6 +119,12 @@ export function SongRow({
 							<IconButton
 								icon={isCurrentTrack && isPlaying ? "Pause" : "Play Simple"}
 								alt="Play"
+								ariaLabel={
+									isCurrentTrack && isPlaying
+										? `Pause ${song.title}`
+										: `Play ${song.title}`
+								}
+								ariaPressed={isCurrentTrack && isPlaying}
 								noHover
 								onClick={(e) => {
 									e.stopPropagation();
@@ -163,6 +165,8 @@ export function SongRow({
 						<IconButton
 							icon="Like"
 							alt="Like"
+							ariaLabel={isLiked ? "Unlike" : "Like"}
+							ariaPressed={isLiked}
 							filled={isLiked}
 							onClick={handleToggleLike}
 						/>
@@ -179,13 +183,17 @@ export function SongRow({
 							<DynamicActionMenu
 								type="track"
 								id={String(song.tidalId)}
-								trigger={<IconButton icon="More" alt="More" />}
+								trigger={
+									<IconButton icon="More" alt="More" ariaLabel="More options" />
+								}
 								song={song}
 							/>
 						</div>
 						<IconButton
 							icon="Check"
 							alt="Check"
+							ariaLabel={inLibrary ? "Remove from library" : "Add to library"}
+							ariaPressed={inLibrary}
 							filled={inLibrary}
 							onClick={handleToggleLibrary}
 							className={

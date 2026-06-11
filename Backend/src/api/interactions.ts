@@ -1,7 +1,8 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { randomUUID } from "node:crypto";
-import { resolveUser, getDb } from "../db/helpers.js";
+import { prisma } from "../db/prisma.js";
+import { resolveUser, ensureUser } from "../db/repositories/users.js";
+import { toJson } from "../db/helpers.js";
 import { scheduleProfileUpdate } from "../workers/runner.js";
 
 const HIGH_SIGNAL = new Set([
@@ -41,23 +42,17 @@ export async function interactionsRoutes(app: FastifyInstance) {
 	}>("/users/:userId/interactions", async (req, reply) => {
 		const body = InteractionBody.parse(req.body);
 		const externalId = req.params.userId;
-		const db = getDb();
 
 		// Resolve or auto-create user
-		let user = resolveUser(externalId);
-		if (!user) {
-			const id = randomUUID();
-			db.prepare(
-				"INSERT INTO users (id, external_id, is_new) VALUES (?, ?, 1)",
-			).run(id, externalId);
-			user = resolveUser(externalId)!;
-		}
+		let user = await resolveUser(externalId);
+		if (!user) user = await ensureUser(externalId, externalId, 1);
 
 		// Validate track if provided
 		if (body.trackId) {
-			const track = db
-				.prepare("SELECT id FROM tracks WHERE id = ? LIMIT 1")
-				.get(body.trackId);
+			const track = await prisma.track.findUnique({
+				where: { id: body.trackId },
+				select: { id: true },
+			});
 			if (!track)
 				return reply
 					.status(404)
@@ -70,28 +65,28 @@ export async function interactionsRoutes(app: FastifyInstance) {
 				: null;
 
 		const nowUnix = Math.floor(Date.now() / 1000);
-		const result = db
-			.prepare(
-				`INSERT INTO user_interactions 
-				(user_id, track_id, artist_id, album_id, event_type, play_duration_sec, track_duration_sec, completion_ratio, session_id, context, occurred_at) 
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			)
-			.run(
-				user.id,
-				body.trackId || null,
-				body.artistId || null,
-				body.albumId || null,
-				body.eventType,
-				body.playDurationSec || null,
-				body.trackDurationSec || null,
+		const created = await prisma.userInteraction.create({
+			data: {
+				userId: user.id,
+				trackId: body.trackId || null,
+				artistId: body.artistId || null,
+				albumId: body.albumId || null,
+				eventType: body.eventType,
+				playDurationSec: body.playDurationSec ?? null,
+				trackDurationSec: body.trackDurationSec ?? null,
 				completionRatio,
-				body.sessionId || null,
-				body.context ? JSON.stringify(body.context) : null,
-				body.occurredAt ?? nowUnix,
-			);
+				sessionId: body.sessionId || null,
+				context: body.context ? toJson(body.context) : null,
+				occurredAt: body.occurredAt ?? nowUnix,
+			},
+			select: { id: true },
+		});
 
-		if (user.is_new) {
-			db.prepare("UPDATE users SET is_new = 0 WHERE id = ?").run(user.id);
+		if (user.isNew) {
+			await prisma.user.update({
+				where: { id: user.id },
+				data: { isNew: 0 },
+			});
 		}
 
 		if (HIGH_SIGNAL.has(body.eventType)) {
@@ -99,7 +94,7 @@ export async function interactionsRoutes(app: FastifyInstance) {
 		}
 
 		return reply.status(201).send({
-			id: result.lastInsertRowid,
+			id: created.id,
 			userId: user.id,
 			eventType: body.eventType,
 		});

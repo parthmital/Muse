@@ -1,0 +1,82 @@
+# =============================================================================
+# Muse — full stack (hifi-api + backend API + backend worker + frontend)
+# =============================================================================
+# Usage:
+#   1. cp Backend/.env.example Backend/.env   # fill in LASTFM_API_KEY etc.
+#   2. docker compose up --build
+#
+# Service ports (host:container):
+#   hifi-api     8000:8000
+#   backend-api  5000:5000
+#   frontend     3000:3000
+# =============================================================================
+
+services:
+  # ── Python FastAPI hi-fi streaming/metadata service ────────────────────────
+  hifi-api:
+    build: ./hifi-api
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  # ── Node Fastify API ───────────────────────────────────────────────────────
+  backend-api:
+    build: ./Backend
+    image: muse-backend
+    ports:
+      - "5000:5000"
+    depends_on:
+      - hifi-api
+    env_file:
+      - ./Backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+      # SQLite lives on the shared named volume mounted at /app/data.
+      SQLITE_PATH: /app/data/music_rec.db
+      # Talk to the hifi-api service over the compose network.
+      TIDAL_API_BASE_URL: http://hifi-api:8000
+      HIFI_API_BASE_URL: http://hifi-api:8000
+    volumes:
+      - backend-data:/app/data
+    restart: unless-stopped
+
+  # ── Node background worker (same image as backend-api) ─────────────────────
+  backend-worker:
+    build: ./Backend
+    image: muse-backend
+    command: ["node", "dist/workers/runner.js"]
+    depends_on:
+      - hifi-api
+      - backend-api
+    env_file:
+      - ./Backend/.env
+    environment:
+      NODE_ENV: production
+      SQLITE_PATH: /app/data/music_rec.db
+      TIDAL_API_BASE_URL: http://hifi-api:8000
+      HIFI_API_BASE_URL: http://hifi-api:8000
+    volumes:
+      - backend-data:/app/data
+    restart: unless-stopped
+
+  # ── Next.js frontend ───────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./Frontend
+      args:
+        # Browser-side calls hit the host-published backend port.
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:5000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend-api
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:5000
+    restart: unless-stopped
+
+volumes:
+  # Named volume for the SQLite database, shared by backend-api and
+  # backend-worker so both processes see the same file.
+  backend-data:

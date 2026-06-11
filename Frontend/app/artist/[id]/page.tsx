@@ -14,8 +14,10 @@ import { useLastFmArtist } from "@/hooks/useLastFmArtist";
 
 const TABS = ["Home", "Albums", "Singles and EPs"];
 
-import { getArtist } from "@/lib/api";
+import { getArtist, TidalAlbum } from "@/lib/api";
 import { tidalTrackToSong } from "@/lib/tidalAdapter";
+
+type ArtistData = Awaited<ReturnType<typeof getArtist>>;
 
 export default function ArtistPage({
 	params,
@@ -25,7 +27,7 @@ export default function ArtistPage({
 	const { id } = use(params);
 	const title = decodeURIComponent(id);
 
-	const [artistData, setArtistData] = useState<any>(null);
+	const [artistData, setArtistData] = useState<ArtistData | null>(null);
 	const [, setIsLoading] = useState(true);
 
 	useEffect(() => {
@@ -113,7 +115,7 @@ export default function ArtistPage({
 	};
 
 	// Deduplicate by normalized title + year, keeping the one with most tracks
-	const albumGroups = new Map<string, any[]>();
+	const albumGroups = new Map<string, TidalAlbum[]>();
 	for (const album of albumsRaw) {
 		const normalizedTitle = normalizeAlbumTitle(album.title || "");
 		const year = album.releaseDate?.substring(0, 4) || "unknown";
@@ -125,40 +127,38 @@ export default function ArtistPage({
 	}
 
 	// For each group, pick the best version (most tracks)
-	const uniqueAlbums: any[] = [];
+	const uniqueAlbums: TidalAlbum[] = [];
 	for (const [, group] of albumGroups) {
 		// Sort by number of tracks descending
-		group.sort(
-			(a: any, b: any) => (b.numberOfTracks || 0) - (a.numberOfTracks || 0),
-		);
+		group.sort((a, b) => (b.numberOfTracks || 0) - (a.numberOfTracks || 0));
 		// Take the first one (most tracks)
 		uniqueAlbums.push(group[0]);
 	}
 
 	// Sort by release date (newest first)
-	const sortedAlbums = uniqueAlbums.sort((a: any, b: any) => {
+	const sortedAlbums = uniqueAlbums.sort((a, b) => {
 		const dateA = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
 		const dateB = b.releaseDate ? new Date(b.releaseDate).getTime() : 0;
 		return dateB - dateA;
 	});
 
-	const mappedAlbums = sortedAlbums.map((a: any) => ({
+	const mappedAlbums = sortedAlbums.map((a) => ({
 		id: String(a.id || a.tidalId || ""),
 		title: a.title,
 		year: a.releaseDate?.substring(0, 4) || "",
-		img: a.cover,
+		img: a.cover ?? "",
 		songsCount: a.numberOfTracks || 0,
 		type: a.type || "ALBUM",
 	}));
 
-	const filterAlbum = (album: any) =>
+	const filterAlbum = (album: (typeof mappedAlbums)[number]) =>
 		album.title.toLowerCase().includes(searchQuery.toLowerCase());
 
 	const filteredAlbums = mappedAlbums.filter(
-		(album: any) => filterAlbum(album) && album.type === "ALBUM",
+		(album) => filterAlbum(album) && album.type === "ALBUM",
 	);
 	const filteredSingles = mappedAlbums.filter(
-		(album: any) =>
+		(album) =>
 			filterAlbum(album) && (album.type === "SINGLE" || album.type === "EP"),
 	);
 
@@ -176,7 +176,7 @@ export default function ArtistPage({
 				listenerCount={listenerCount}
 				onPlay={handlePlayArtist}
 				artistSongs={artistSongs}
-				artistPicture={artistData?.artist?.picture}
+				artistPicture={artistData?.artist?.picture ?? undefined}
 			/>
 
 			<ArtistTabs
@@ -216,7 +216,7 @@ export default function ArtistPage({
 						biography={lastFmInfo?.bio?.summary || ""}
 						tags={lastFmInfo?.tags || artistData?.artist?.artistTypes || []}
 						similarArtists={lastFmInfo?.similar || []}
-						artistPicture={artistData?.artist?.picture}
+						artistPicture={artistData?.artist?.picture ?? undefined}
 					/>
 				)}
 			</div>

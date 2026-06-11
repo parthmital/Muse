@@ -78,6 +78,7 @@ function TopBarContent() {
 						key={item.alt}
 						icon={item.icon}
 						alt={item.alt}
+						ariaLabel={item.alt}
 						href={item.href}
 					/>
 				))}

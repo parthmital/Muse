@@ -14,9 +14,9 @@ import { browseRoutes } from "./api/browse.js";
 import { contextMenuRoutes } from "./api/contextMenu.js";
 import { actionRoutes } from "./api/actions.js";
 import { lastfmRoutes } from "./api/lastfm.js";
-import { db, runMigrations } from "./db/client.js";
-import { resolveUser } from "./db/helpers.js";
-import { embeddingClient } from "./services/embeddingClient.js";
+import { prisma, initDb, disconnectDb } from "./db/prisma.js";
+import { ensureUser } from "./db/repositories/users.js";
+import { registerAuth } from "./auth.js";
 
 const app = Fastify({
 	logger: {
@@ -28,49 +28,25 @@ const app = Fastify({
 	},
 });
 
-// Run DB migrations and ensure dev user
+// Initialize DB (pragmas), report dataset size, ensure dev user
 try {
-	runMigrations();
+	await initDb();
 
-	const tableCounts = {
-		tracks: db.prepare("SELECT COUNT(*) as c FROM tracks").get() as {
-			c: number;
-		},
-		artists: db.prepare("SELECT COUNT(*) as c FROM artists").get() as {
-			c: number;
-		},
-		albums: db.prepare("SELECT COUNT(*) as c FROM albums").get() as {
-			c: number;
-		},
-	};
+	const [tracks, artists, albums] = await Promise.all([
+		prisma.track.count(),
+		prisma.artist.count(),
+		prisma.album.count(),
+	]);
 
-	app.log.info(
-		{
-			tracks: tableCounts.tracks.c,
-			artists: tableCounts.artists.c,
-			albums: tableCounts.albums.c,
-		},
-		"Dataset row counts at startup",
-	);
+	app.log.info({ tracks, artists, albums }, "Dataset row counts at startup");
 
-	if (tableCounts.tracks.c === 0 && tableCounts.artists.c === 0) {
+	if (tracks === 0 && artists === 0) {
 		app.log.warn(
 			"Dataset appears empty. Homepage recommendations may return no items until ingestion/sync runs.",
 		);
 	}
 
-	const DEV_USER_ID = "dev-user-001";
-	const existing = resolveUser(DEV_USER_ID);
-
-	if (!existing) {
-		app.log.info("Initializing dev user");
-		db.prepare(
-			"INSERT OR IGNORE INTO users (id, external_id, is_new) VALUES (?, ?, 0)",
-		).run(DEV_USER_ID, DEV_USER_ID);
-		db.prepare(
-			"INSERT OR IGNORE INTO user_profiles (user_id, profile_vector, total_play_count) VALUES (?, '[]', 0)",
-		).run(DEV_USER_ID);
-	}
+	await ensureUser(config.devUserId, config.devUserId, 0);
 
 	// Check Tidal-API health
 	try {
@@ -90,6 +66,9 @@ try {
 }
 
 await app.register(cors, { origin: true });
+
+// Identity boundary — decorates request.authUserId (see src/auth.ts).
+registerAuth(app);
 
 await app.register(swagger, {
 	openapi: {
@@ -142,11 +121,13 @@ app.setNotFoundHandler((request, reply) => {
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get("/health", async () => {
-	const embHealth = await embeddingClient.health();
-	return {
-		status: "ok",
-		embedding: embHealth ?? { status: "unreachable" },
-	};
+	return { status: "ok" };
+});
+
+// ── Metrics ───────────────────────────────────────────────────────────────────
+app.get("/metrics", async () => {
+	const { snapshot } = await import("./metrics.js");
+	return snapshot();
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
@@ -165,3 +146,13 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (error) => {
 	app.log.fatal({ error }, "Uncaught exception");
 });
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+	process.on(signal, () => {
+		app.log.info({ signal }, "Shutting down");
+		void app
+			.close()
+			.then(() => disconnectDb())
+			.finally(() => process.exit(0));
+	});
+}

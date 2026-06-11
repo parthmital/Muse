@@ -1,9 +1,11 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { resolveUser, getDb } from "../db/helpers.js";
+import { prisma } from "../db/prisma.js";
+import { resolveUser } from "../db/repositories/users.js";
 import { recommend, pickRadioSeeds } from "../services/recommender.js";
 import { initQueue, updateQueue, getQueue } from "../services/queueManager.js";
 import { buildHomepageShelvesForExternalUser } from "../services/homepageBuilder.js";
+import { getHomepageShelves } from "../services/homepageCache.js";
 
 const SURFACES = [
 	"queue",
@@ -32,7 +34,7 @@ export async function recommendationRoutes(app: FastifyInstance) {
 		Params: { userId: string };
 		Querystring: { surface?: string; seedTrackId?: string; limit?: string };
 	}>("/users/:userId/recommendations", async (req, reply) => {
-		const user = resolveUser(req.params.userId);
+		const user = await resolveUser(req.params.userId);
 		if (!user) return reply.status(404).send({ error: "User not found" });
 
 		const surface = SURFACES.includes(req.query.surface as any)
@@ -58,7 +60,7 @@ export async function recommendationRoutes(app: FastifyInstance) {
 	app.get<{ Params: { userId: string } }>(
 		"/users/:userId/radio/seeds",
 		async (req, reply) => {
-			const user = resolveUser(req.params.userId);
+			const user = await resolveUser(req.params.userId);
 			if (!user) return reply.status(404).send({ error: "User not found" });
 			const seeds = await pickRadioSeeds(user.id);
 			return { userId: req.params.userId, seeds };
@@ -69,7 +71,7 @@ export async function recommendationRoutes(app: FastifyInstance) {
 		Params: { userId: string };
 		Querystring: { sessionId: string; seedTrackId?: string };
 	}>("/users/:userId/queue/init", async (req, reply) => {
-		const user = resolveUser(req.params.userId);
+		const user = await resolveUser(req.params.userId);
 		if (!user) return reply.status(404).send({ error: "User not found" });
 
 		const { sessionId, seedTrackId } = req.query;
@@ -90,7 +92,7 @@ export async function recommendationRoutes(app: FastifyInstance) {
 		Params: { userId: string };
 		Body: z.infer<typeof UpdateQueueBody>;
 	}>("/users/:userId/queue/update", async (req, reply) => {
-		const user = resolveUser(req.params.userId);
+		const user = await resolveUser(req.params.userId);
 		if (!user) return reply.status(404).send({ error: "User not found" });
 
 		const body = UpdateQueueBody.parse(req.body);
@@ -119,9 +121,7 @@ export async function recommendationRoutes(app: FastifyInstance) {
 				"private, max-age=15, stale-while-revalidate=60",
 			);
 			try {
-				const homepage = await buildHomepageShelvesForExternalUser(
-					req.params.userId,
-				);
+				const homepage = await getHomepageShelves(req.params.userId);
 				req.log.info(
 					{
 						userId: req.params.userId,
@@ -130,7 +130,7 @@ export async function recommendationRoutes(app: FastifyInstance) {
 							count: shelf.items.length,
 						})),
 					},
-					"users/:userId/homepage generated system shelves",
+					"users/:userId/homepage served shelves",
 				);
 				return homepage;
 			} catch (error) {
@@ -157,10 +157,6 @@ export async function recommendationRoutes(app: FastifyInstance) {
 				const homepage = await buildHomepageShelvesForExternalUser(
 					req.params.userId,
 				);
-				const db = getDb();
-				const countTracksStmt = db.prepare(
-					"SELECT COUNT(*) as c FROM playlist_tracks WHERE playlist_id = ?",
-				);
 
 				const sectionChecks = homepage.shelves.map((shelf) => {
 					const itemCount = shelf.items.length;
@@ -171,23 +167,26 @@ export async function recommendationRoutes(app: FastifyInstance) {
 					};
 				});
 
-				const collectionChecks = homepage.shelves.flatMap((shelf) =>
-					shelf.items
-						.filter(
-							(item: HomepageShelfItem) =>
-								item.type === "mix" || item.type === "playlist",
-						)
-						.map((item: HomepageShelfItem) => {
-							const playlistId = String(item.tidalId);
-							const row = countTracksStmt.get(playlistId) as { c: number };
-							return {
-								id: playlistId,
-								title: item.title,
-								type: item.type,
-								tracksInDb: row?.c ?? 0,
-								exactly50Ok: (row?.c ?? 0) === 50,
-							};
-						}),
+				const collectionItems = homepage.shelves.flatMap((shelf) =>
+					shelf.items.filter(
+						(item: HomepageShelfItem) =>
+							item.type === "mix" || item.type === "playlist",
+					),
+				);
+				const collectionChecks = await Promise.all(
+					collectionItems.map(async (item: HomepageShelfItem) => {
+						const playlistId = String(item.tidalId);
+						const c = await prisma.playlistTrack.count({
+							where: { playlistId },
+						});
+						return {
+							id: playlistId,
+							title: item.title,
+							type: item.type,
+							tracksInDb: c,
+							exactly50Ok: c === 50,
+						};
+					}),
 				);
 
 				return {

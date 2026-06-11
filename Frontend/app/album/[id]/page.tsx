@@ -14,8 +14,13 @@ import { usePlayer } from "@/context/PlayerContext";
 import { formatTotalDuration } from "@/utils/duration";
 import { DynamicActionMenu } from "@/components/DynamicActionMenu";
 
-import { getAlbum } from "@/lib/api";
+import { getAlbum, TidalAlbum, TidalTrack } from "@/lib/api";
 import { tidalTrackToSong } from "@/lib/tidalAdapter";
+
+interface AlbumData {
+	album: TidalAlbum;
+	tracks: TidalTrack[];
+}
 
 const SONG_COMPARATORS: Record<string, (a: Song, b: Song) => number> = {
 	title: (a, b) => a.title.localeCompare(b.title),
@@ -34,7 +39,7 @@ export default function AlbumPage({
 
 	const { playTrack, playPlaylist, currentTrack, isPlaying } = usePlayer();
 
-	const [albumData, setAlbumData] = useState<any>(null);
+	const [albumData, setAlbumData] = useState<AlbumData | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 
 	useEffect(() => {
@@ -51,8 +56,6 @@ export default function AlbumPage({
 
 	const [isSearchActive, setIsSearchActive] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
-	// Since library logic was moved to backend, we ignore local library fetching
-	const libraryAlbums = useMemo<Record<string, boolean>>(() => ({}), []);
 
 	const {
 		isInitialized,
@@ -63,11 +66,6 @@ export default function AlbumPage({
 	} = useSongActions();
 
 	const allInitialized = isInitialized;
-
-	const inLibrary = useMemo(
-		() => libraryAlbums[title] ?? false,
-		[libraryAlbums, title],
-	);
 
 	const filteredSongs = displaySongs.filter(
 		(song: Song) =>
@@ -92,7 +90,7 @@ export default function AlbumPage({
 			isPlaying &&
 			currentTrack &&
 			displaySongs.some(
-				(s: any) =>
+				(s: Song) =>
 					s.title === currentTrack.title && s.artist === currentTrack.artist,
 			),
 		[isPlaying, currentTrack, displaySongs],
@@ -102,12 +100,6 @@ export default function AlbumPage({
 		if (sortedSongs.length > 0) {
 			playPlaylist(sortedSongs);
 		}
-	};
-
-	const toggleAlbumLibrary = () => {
-		// Using the backend library action manager logic instead.
-		// For now just console log.
-		console.log(`${title} album library toggled.`);
 	};
 
 	const playIcon = isThisAlbumPlaying ? "Pause" : "Play";
@@ -143,12 +135,6 @@ export default function AlbumPage({
 						onClick={handlePlayAll}
 					/>
 					<IconButton icon="Shuffle" alt="Shuffle" />
-					<IconButton
-						icon={inLibrary ? "Check" : "Add"}
-						alt={inLibrary ? "In Library" : "Add to Library"}
-						filled={inLibrary}
-						onClick={toggleAlbumLibrary}
-					/>
 					<IconButton icon="Add to Queue" alt="Add to Queue" />
 					<IconButton icon="Download" alt="Download" />
 					<IconButton icon="Share" alt="Share" />
