@@ -120,7 +120,11 @@ export async function searchTidalTrack(
 			}
 		}
 
-		return bestMatch ?? result.items[0] ?? null;
+		// Return null when nothing clears the relevance threshold rather than
+		// falling back to result.items[0]. A bad query (or a track missing from
+		// Tidal) must NOT silently resolve to an unrelated song — that's how
+		// off-theme tracks leak into mixes. A short, correct mix beats a wrong one.
+		return bestMatch;
 	} catch {
 		return null;
 	}
@@ -223,9 +227,11 @@ export async function searchTidalArtist(
 
 		if (!artists.length) return null;
 
-		// Find best match by name similarity
+		// Find best match by name similarity. Relevance gate (see
+		// searchTidalTrack): no match → null, never artists[0]. Falling back to
+		// the first result resolves a known Last.fm name to an unrelated artist.
 		const match = findBestMatch(name, artists);
-		return match ?? artists[0] ?? null;
+		return match;
 	} catch {
 		return null;
 	}
@@ -318,7 +324,8 @@ export async function searchTidalAlbum(
 			}
 		}
 
-		return bestMatch ?? result.items[0] ?? null;
+		// Relevance gate (see searchTidalTrack): no match → null, never items[0].
+		return bestMatch;
 	} catch {
 		return null;
 	}
@@ -438,33 +445,57 @@ export async function fetchArtistTopTracks(
 export async function fetchTrendingTracksFallback(
 	minCount: number,
 ): Promise<HifiTrack[]> {
-	// Try Last.fm first
+	// Primary: Last.fm weekly chart.
 	const tracks = await fetchTrendingTracks(minCount);
 	if (tracks.length >= minCount) {
 		log.debug({ found: tracks.length }, "Using Last.fm trending tracks");
 		return tracks;
 	}
 
-	// Fallback to keyword search if Last.fm fails or returns insufficient results
-	log.warn(
-		{ found: tracks.length, want: minCount },
-		"Last.fm trending insufficient, falling back to keyword search",
-	);
+	// Top up from other *real* chart sources — never a blind keyword search.
+	// `searchTracks("viral")` returns songs merely titled "viral"/"popular",
+	// which then get persisted into the catalog and pollute every downstream
+	// pool and mix. More chart periods + top-tag charts are real popularity.
+	const collected: HifiTrack[] = [...tracks];
+	const seen = new Set(collected.map((t) => String(t.id)));
+	const addAll = (more: HifiTrack[]) => {
+		for (const t of more) {
+			const id = String(t.id);
+			if (seen.has(id)) continue;
+			seen.add(id);
+			collected.push(t);
+		}
+	};
 
-	const queries = ["trending", "top hits", "popular", "viral", "new music"];
-	const collected: HifiTrack[] = [];
-
-	for (const q of queries) {
+	for (const period of ["1month", "3month"] as const) {
+		if (collected.length >= minCount) break;
 		try {
-			const result = await hifiClient.searchTracks(q, 100, 0);
-			collected.push(...(result.items ?? []));
-			if (collected.length >= minCount * 2) break;
+			addAll(await fetchTrendingTracks(minCount, period));
 		} catch {
-			// Continue trying next query
+			// Try the next source.
 		}
 	}
 
-	return collected.slice(0, minCount * 2);
+	if (collected.length < minCount) {
+		try {
+			const tags = await lastfmClient.getTopTags(5);
+			for (const tag of tags) {
+				if (collected.length >= minCount) break;
+				addAll(await fetchPopularTracksByTag(tag.name, minCount));
+			}
+		} catch {
+			// Fall through with whatever real data we collected.
+		}
+	}
+
+	if (collected.length < minCount) {
+		log.warn(
+			{ found: collected.length, want: minCount },
+			"Last.fm chart data insufficient; returning real results only (no keyword fallback)",
+		);
+	}
+
+	return collected;
 }
 
 export async function fetchPopularArtistsFallback(

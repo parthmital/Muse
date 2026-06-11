@@ -608,34 +608,6 @@ class HifiClient {
 		});
 		return data.data ?? data;
 	}
-
-	// ── Catalogue streaming (for ingestion/seeding) ──────────────────────────
-
-	async *streamCatalogue(pageSize = 100): AsyncGenerator<HifiTrack> {
-		// Use search with popular queries to seed the catalogue
-		const seedQueries = [
-			"pop",
-			"rock",
-			"hip hop",
-			"electronic",
-			"r&b",
-			"jazz",
-			"classical",
-			"indie",
-			"metal",
-			"country",
-		];
-		for (const query of seedQueries) {
-			let offset = 0;
-			while (true) {
-				const result = await this.searchTracks(query, pageSize, offset);
-				for (const item of result.items) yield item;
-				if (result.items.length < pageSize) break;
-				offset += pageSize;
-				if (offset >= 200) break; // cap per-query
-			}
-		}
-	}
 }
 
 function chunks<T>(arr: T[], n: number): T[][] {

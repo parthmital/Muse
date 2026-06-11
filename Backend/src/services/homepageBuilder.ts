@@ -462,33 +462,62 @@ function buildMadeForYouTitle(artistName: string, _index: number): string {
 }
 
 /**
- * Order a mix's tracks so the named artist anchors it: that artist's own pool
- * tracks first, then the rest of the (similarity-derived) pool for discovery.
- * Pure local selection — no API calls — so it's safe on the request path.
+ * The anchor artist's own tracks that are already in the local pool. Pure local
+ * selection — no API calls — so it's safe on the request path.
  */
-function pickArtistAnchoredTrackIds(
+function pickArtistOwnPoolIds(
 	artistId: string | null,
 	poolIds: string[],
 	poolById: Map<string, PoolTrack>,
-	offset: number,
-	count: number,
 ): string[] {
-	const own: string[] = [];
-	if (artistId) {
-		for (const id of poolIds) {
-			if (poolById.get(id)?.artistId === artistId) own.push(id);
+	if (!artistId) return [];
+	return poolIds.filter((id) => poolById.get(id)?.artistId === artistId);
+}
+
+/**
+ * Fill a mix's tail with pool tracks that share the dominant genre(s) of the
+ * tracks already chosen — keeping the mix coherent (a hip-hop mix stays hip-hop)
+ * instead of padding with arbitrary popular tracks. Relies on track_features
+ * genres; returns [] when those are sparse, so callers fall back to general pool.
+ */
+async function pickGenreRelatedPoolIds(
+	selectedIds: string[],
+	poolIds: string[],
+	exclude: Set<string>,
+	need: number,
+): Promise<string[]> {
+	if (need <= 0 || !selectedIds.length || !poolIds.length) return [];
+	try {
+		const genreRows = await prisma.$queryRaw<Array<{ genre: string }>>`
+			SELECT genre, COUNT(*) as c
+			 FROM track_features
+			 WHERE track_id IN (${Prisma.join(selectedIds)})
+			   AND genre IS NOT NULL AND genre != ''
+			 GROUP BY genre
+			 ORDER BY c DESC
+			 LIMIT 3`;
+		const genres = genreRows.map((r) => r.genre);
+		if (!genres.length) return [];
+
+		const rows = await prisma.$queryRaw<Array<{ track_id: string }>>`
+			SELECT tf.track_id
+			 FROM track_features tf
+			 JOIN tracks t ON t.id = tf.track_id
+			 WHERE tf.track_id IN (${Prisma.join(poolIds)})
+			   AND tf.genre IN (${Prisma.join(genres)})
+			 ORDER BY t.popularity DESC`;
+
+		const out: string[] = [];
+		for (const row of rows) {
+			const id = String(row.track_id);
+			if (exclude.has(id)) continue;
+			out.push(id);
+			if (out.length >= need) break;
 		}
+		return out;
+	} catch {
+		return [];
 	}
-	const rest = pickTrackIds(poolIds, offset, count + own.length);
-	const ordered: string[] = [];
-	const seen = new Set<string>();
-	for (const id of [...own, ...rest]) {
-		if (seen.has(id)) continue;
-		seen.add(id);
-		ordered.push(id);
-		if (ordered.length >= count) break;
-	}
-	return ordered;
 }
 
 /**
@@ -497,17 +526,26 @@ function pickArtistAnchoredTrackIds(
  * persisted. Returns the new track IDs. Expensive (network) — only run during
  * worker precompute, never on the request path.
  */
-const MIX_SIMILAR_ARTISTS = 3;
-const MIX_ENRICH_TIDAL_CAP = 24;
+// Breadth is sized to honestly fill a full COLLECTION_TRACK_COUNT (50) mix from
+// genuinely artist-relevant tracks alone — anchor's own top tracks plus several
+// similar artists' top tracks — so the tail never needs arbitrary pool padding.
+// ~20 + 8×8 = ~84 raw candidates → comfortably ≥50 after the relevance gate and
+// Tidal-resolution dropout.
+const MIX_SIMILAR_ARTISTS = 8;
+const MIX_OWN_TOP_TRACKS = 20;
+const MIX_SIMILAR_TOP_TRACKS = 8;
+const MIX_ENRICH_TIDAL_CAP = Math.max(70, COLLECTION_TRACK_COUNT + 20);
 
 async function enrichArtistMixTrackIds(artistName: string): Promise<string[]> {
 	if (!artistName) return [];
 	try {
 		const [own, similar] = await Promise.all([
-			lastfmClient.getArtistTopTracks(artistName, 12),
+			lastfmClient.getArtistTopTracks(artistName, MIX_OWN_TOP_TRACKS),
 			lastfmClient.getSimilarArtists(artistName, MIX_SIMILAR_ARTISTS),
 		]);
 
+		// Anchor artist's own tracks lead the mix; similar artists' top tracks
+		// (by similarity rank) form the discovery tail. Both are artist-relevant.
 		const candidates = own.map((t) => ({
 			title: t.name,
 			artist: t.artist?.name ?? artistName,
@@ -516,7 +554,9 @@ async function enrichArtistMixTrackIds(artistName: string): Promise<string[]> {
 		const similarTop = await Promise.allSettled(
 			similar
 				.slice(0, MIX_SIMILAR_ARTISTS)
-				.map((sa) => lastfmClient.getArtistTopTracks(sa.name, 6)),
+				.map((sa) =>
+					lastfmClient.getArtistTopTracks(sa.name, MIX_SIMILAR_TOP_TRACKS),
+				),
 		);
 		for (const result of similarTop) {
 			if (result.status !== "fulfilled") continue;
@@ -912,28 +952,40 @@ export async function buildHomepageShelvesForExternalUser(
 		const mixId = `sys-mix-${externalId}-${i + 1}`;
 		const mixTitle = buildMadeForYouTitle(artist.name, i);
 
-		// Center the mix on its artist using the (similarity-derived) pool, then
-		// top up with a bounded Last.fm expansion when enriching.
-		let candidateIds = pickArtistAnchoredTrackIds(
-			artist.id,
-			poolIds,
-			poolById,
-			baseOffset + i * 17,
-			COLLECTION_TRACK_COUNT,
-		);
-
+		// Assemble the mix from artist-relevant tracks only, in priority order:
+		//   1. Bounded Last.fm expansion — anchor + similar artists' top tracks
+		//      (the main source when enriching; sized to fill 50 on its own).
+		//   2. The anchor artist's own tracks already in the local pool.
+		//   3. Genre-coherent pool tracks (same dominant genre as the above).
+		//   4. General pool — true last resort, only to keep the shelf full.
+		// Steps 1–3 are all on-theme; step 4 rarely triggers once enrichment runs.
+		const relevant: string[] = [];
 		if (enrich) {
-			const enriched = await enrichArtistMixTrackIds(artist.name);
-			if (enriched.length) {
-				const merged: string[] = [];
-				const seen = new Set<string>();
-				for (const id of [...enriched, ...candidateIds]) {
-					if (seen.has(id)) continue;
-					seen.add(id);
-					merged.push(id);
-				}
-				candidateIds = merged;
-			}
+			relevant.push(...(await enrichArtistMixTrackIds(artist.name)));
+		}
+		let candidateIds = dedupeStrings([
+			...relevant,
+			...pickArtistOwnPoolIds(artist.id, poolIds, poolById),
+		]);
+
+		if (candidateIds.length < COLLECTION_TRACK_COUNT) {
+			const genreFill = await pickGenreRelatedPoolIds(
+				candidateIds,
+				poolIds,
+				new Set(candidateIds),
+				COLLECTION_TRACK_COUNT - candidateIds.length,
+			);
+			candidateIds = dedupeStrings([...candidateIds, ...genreFill]);
+		}
+
+		if (candidateIds.length < COLLECTION_TRACK_COUNT) {
+			const chosen = new Set(candidateIds);
+			const filler = pickTrackIds(
+				poolIds.filter((id) => !chosen.has(id)),
+				baseOffset + i * 17,
+				COLLECTION_TRACK_COUNT - candidateIds.length,
+			);
+			candidateIds = dedupeStrings([...candidateIds, ...filler]);
 		}
 
 		// Prefer tracks not already spent on an earlier mix (soft dedup).
