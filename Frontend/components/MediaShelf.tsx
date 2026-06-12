@@ -32,9 +32,9 @@ export function MediaShelf({
 			/>
 			<ScrollContainer ref={scrollRef}>
 				{items.length > 0 ? (
-					items.map((item) => (
+					items.map((item, index) => (
 						<MediaCard
-							key={`${item.type ?? "media"}-${String(item.tidalId ?? item.title)}`}
+							key={`${item.type ?? "media"}-${String(item.tidalId ?? item.title)}-${index}`}
 							item={item}
 							disableHoverTransitions={disableHoverTransitions}
 						/>

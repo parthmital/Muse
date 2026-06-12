@@ -83,6 +83,16 @@ export async function browseRoutes(app: FastifyInstance) {
 			req.body,
 		);
 
+		// Drop any prior identical entry so the same item/query doesn't pile up
+		// duplicate rows; a row keyed by itemId is the same item, otherwise we
+		// match on the raw query text.
+		await prisma.searchHistory.deleteMany({
+			where: {
+				userId: req.authUserId,
+				...(itemId ? { itemId } : { itemId: null, query: query || null }),
+			},
+		});
+
 		await prisma.searchHistory.create({
 			data: {
 				userId: req.authUserId,

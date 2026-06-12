@@ -6,9 +6,10 @@ import { IconButton } from "./ui/IconButton";
 
 const ITEMS = [
 	{ label: "Home", icon: "Home", href: "/" },
-	{ label: "Search", icon: "Search", href: "/search" },
 	{ label: "Discover", icon: "Discover", href: "/discover" },
+	{ label: "Search", icon: "Search", href: "/search" },
 	{ label: "Library", icon: "Library", href: "/library" },
+	{ label: "Me", icon: "User", href: "/profile" },
 ];
 
 /**
@@ -21,7 +22,8 @@ export function MobileNav() {
 	return (
 		<nav
 			aria-label="Primary"
-			className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-neutral-800 bg-black/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
+			className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-neutral-800 bg-black pt-2 md:hidden"
+			style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
 		>
 			{ITEMS.map((item) => {
 				const active =
@@ -31,7 +33,7 @@ export function MobileNav() {
 						key={item.label}
 						href={item.href}
 						aria-current={active ? "page" : undefined}
-						className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] ${
+						className={`flex flex-1 flex-col items-center gap-1 py-2 text-xs ${
 							active ? "text-white" : "text-neutral-500"
 						}`}
 					>
@@ -40,9 +42,7 @@ export function MobileNav() {
 							alt={item.label}
 							filled={active}
 							noHover
-							width={24}
-							height={24}
-							className={active ? "brightness-0 invert" : "opacity-70"}
+							className={active ? "brightness-0 invert" : ""}
 						/>
 						<span>{item.label}</span>
 					</Link>

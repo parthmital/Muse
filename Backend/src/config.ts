@@ -26,10 +26,9 @@ export const config = {
 
 	sqlitePath: env("SQLITE_PATH", "./data/music_rec.db"),
 
-	hifiBaseUrl: env("HIFI_API_BASE_URL", ""),
-	hifiApiKey: env("HIFI_API_KEY", ""),
-
-	tidalApiBaseUrl: env("TIDAL_API_BASE_URL", "http://localhost:4000"),
+	// Base URL of the hifi-api Python service (Tidal proxy). Defaults to its
+	// real local port (8000); docker-compose overrides this to the service name.
+	tidalApiBaseUrl: env("TIDAL_API_BASE_URL", "http://localhost:8000"),
 
 	lastfmApiKey: env("LASTFM_API_KEY", ""),
 

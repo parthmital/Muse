@@ -25,7 +25,7 @@ export function PageContainer({
 			<div
 				ref={containerRef}
 				data-page-container="true"
-				className={`scrollbar-hide relative flex grow flex-col gap-6 overflow-auto rounded-lg border border-neutral-800 p-6 ${className}`}
+				className={`relative flex grow flex-col gap-6 overflow-auto border-neutral-800 p-4 pb-40 md:rounded-lg md:border md:p-6 ${className}`}
 			>
 				{children}
 			</div>

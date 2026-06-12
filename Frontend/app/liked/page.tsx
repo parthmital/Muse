@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { FilterBar } from "@/components/FilterBar";
 import { Song, SongRow } from "@/components/SongRow";
 import { SongListHeader } from "@/components/SongListHeader";
 import { useSongActions } from "@/hooks/useContextMenu";
 import { useSorting } from "@/hooks/useSorting";
 import { durationToSeconds } from "@/utils/duration";
-import { API_BASE, swrFetcher } from "@/lib/api";
+import { API_BASE, swrFetcher, getTrackInfo } from "@/lib/api";
+import { tidalTrackToSong } from "@/lib/tidalAdapter";
+import { trackKey, isResolvableTrackKey } from "@/lib/trackKey";
 
 import useSWR from "swr";
 
@@ -35,32 +37,36 @@ const SONG_COMPARATORS: Record<string, (a: Song, b: Song) => number> = {
 
 export default function LikedPage() {
 	const [searchQuery, setSearchQuery] = useState("");
-	const [songSnapshot, setSongSnapshot] = useState<Song[] | null>(null);
 
 	const { isInitialized, toggleLike, toggleLibrary, isLiked, isInLibrary } =
 		useSongActions();
 
-	// Fetch all library data from backend
+	// Liked tracks are stored in the library as `liked_track` rows keyed by the
+	// Tidal id; resolve each id to a full track for display.
 	const { data: libraryData } = useSWR<{
 		library: { itemType: string; itemId: string }[];
 	}>(`${API_BASE}/library`, swrFetcher);
 
-	// In a real scenario we need to fetch tracks by ID.
-	// Since we are decoupling from mock ALL_SONGS, we default to empty array or fetch actual tracks.
-	useEffect(() => {
-		if (isInitialized && libraryData && songSnapshot === null) {
-			// MOCK API bridge for now: we have no bulk endpoint to fetch all track details by IDs easily
-			// without rewriting the backend. Default to an empty array for now.
-			const initialLiked: Song[] = [];
-			const timer = setTimeout(() => {
-				setSongSnapshot(initialLiked);
-			}, 0);
-			return () => clearTimeout(timer);
-		}
-	}, [isInitialized, libraryData, songSnapshot]);
+	const likedIds = (libraryData?.library ?? [])
+		.filter((i) => i.itemType === "liked_track")
+		.map((i) => i.itemId)
+		.filter(isResolvableTrackKey);
 
-	// Apply filtering on the snapshot
-	const filteredSongs = (songSnapshot ?? []).filter(
+	const { data: likedSongs, isLoading: songsLoading } = useSWR(
+		libraryData ? ["liked-songs", likedIds.join(",")] : null,
+		async (): Promise<Song[]> => {
+			const resolved = await Promise.all(
+				likedIds.map((id) =>
+					getTrackInfo(Number(id))
+						.then((t) => ({ ...tidalTrackToSong(t), liked: true }))
+						.catch(() => null),
+				),
+			);
+			return resolved.filter((s): s is Song => s !== null);
+		},
+	);
+
+	const filteredSongs = (likedSongs ?? []).filter(
 		(song) =>
 			song.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
 			song.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -80,6 +86,8 @@ export default function LikedPage() {
 		comparators: SONG_COMPARATORS,
 	});
 
+	const loading = !isInitialized || !libraryData || songsLoading;
+
 	return (
 		<>
 			<FilterBar
@@ -93,7 +101,7 @@ export default function LikedPage() {
 				onSortOrderChange={setSortOrder}
 			/>
 
-			{!isInitialized ? (
+			{loading ? (
 				<div className="flex flex-col gap-2 opacity-50">
 					<div className="p-4 text-white">Loading your music...</div>
 				</div>
@@ -107,7 +115,7 @@ export default function LikedPage() {
 
 					{sortedSongs.length > 0 ? (
 						sortedSongs.map((song, index) => {
-							const songKey = `${song.title}-${song.artist}`;
+							const songKey = trackKey(song);
 							return (
 								<SongRow
 									key={`${songKey}-${index}`}

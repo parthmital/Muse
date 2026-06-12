@@ -24,6 +24,9 @@ interface Suggestion {
 	href: string;
 	type: "artist" | "album" | "track" | "recent";
 	icon: string;
+	// What to persist to search history when this suggestion is chosen, so the
+	// recent-search card carries a real tidalId and routes to the item.
+	save?: { itemType: string; itemId: string; imageUrl?: string };
 }
 
 function SearchInputContent({
@@ -106,6 +109,11 @@ function SearchInputContent({
 							href: `/artist/${a.id}`,
 							type: "artist",
 							icon: "Artist",
+							save: {
+								itemType: "artist",
+								itemId: String(a.id),
+								imageUrl: a.picture ?? undefined,
+							},
 						});
 					}
 					for (const t of (res.tracks || []).slice(0, 4)) {
@@ -118,6 +126,14 @@ function SearchInputContent({
 								: `/search?q=${encodeURIComponent(q)}`,
 							type: "track",
 							icon: "Notes",
+							// Tracks route to their album, so record the album.
+							save: t.album?.id
+								? {
+										itemType: "album",
+										itemId: String(t.album.id),
+										imageUrl: t.album?.cover ?? undefined,
+									}
+								: undefined,
 						});
 					}
 					for (const al of (res.albums || []).slice(0, 3)) {
@@ -128,6 +144,11 @@ function SearchInputContent({
 							href: `/album/${al.id}`,
 							type: "album",
 							icon: "Album",
+							save: {
+								itemType: "album",
+								itemId: String(al.id),
+								imageUrl: al.cover ?? undefined,
+							},
 						});
 					}
 					setSuggestions(out);
@@ -158,7 +179,6 @@ function SearchInputContent({
 			if (onSearch) onSearch(val);
 			if (preventNavigation) return;
 			if (val.trim()) {
-				saveSearch({ query: val.trim() }).catch(() => {});
 				const params = new URLSearchParams(searchParams.toString());
 				params.set("q", val);
 				if (pathname !== "/search") router.push(`/search?${params.toString()}`);
@@ -177,11 +197,19 @@ function SearchInputContent({
 				setQuery(s.label);
 				submitQuery(s.label);
 			} else {
-				saveSearch({ query: query.trim() || s.label }).catch(() => {});
+				// Only record the clicked item, never the raw typed query.
+				if (s.save) {
+					saveSearch({
+						query: s.label,
+						itemType: s.save.itemType,
+						itemId: s.save.itemId,
+						imageUrl: s.save.imageUrl,
+					}).catch(() => {});
+				}
 				router.push(s.href);
 			}
 		},
-		[router, submitQuery, query],
+		[router, submitQuery],
 	);
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -268,8 +296,8 @@ function SearchInputContent({
 							<Image
 								src={`/icons/Name=${s.icon}, Filled=No.svg`}
 								alt=""
-								width={18}
-								height={18}
+								width={40}
+								height={40}
 								className="shrink-0 opacity-60 brightness-0 invert"
 							/>
 							<span className="min-w-0 flex-1">

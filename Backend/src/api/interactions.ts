@@ -3,7 +3,12 @@ import { z } from "zod";
 import { prisma } from "../db/prisma.js";
 import { resolveUser, ensureUser } from "../db/repositories/users.js";
 import { toJson } from "../db/helpers.js";
-import { scheduleProfileUpdate } from "../workers/runner.js";
+import { upsertHifiTrack } from "../db/repositories/catalog.js";
+import { hifiClient } from "../services/hifiClient.js";
+import {
+	scheduleProfileUpdate,
+	scheduleEnrichTrack,
+} from "../workers/runner.js";
 
 const HIGH_SIGNAL = new Set([
 	"like",
@@ -47,16 +52,53 @@ export async function interactionsRoutes(app: FastifyInstance) {
 		let user = await resolveUser(externalId);
 		if (!user) user = await ensureUser(externalId, externalId, 1);
 
-		// Validate track if provided
-		if (body.trackId) {
-			const track = await prisma.track.findUnique({
-				where: { id: body.trackId },
+		// Ensure the track exists in our catalog. Tracks played straight from
+		// Tidal often aren't ingested yet, so fetch + persist on a miss (which
+		// also creates the track's artist and album). This keeps the FK valid and
+		// gives top-tracks/top-artists real metadata to display. If we can't
+		// resolve it, record the interaction without the track link rather than
+		// rejecting it.
+		let trackId = body.trackId || null;
+		if (trackId) {
+			const exists = await prisma.track.findUnique({
+				where: { id: trackId },
 				select: { id: true },
 			});
-			if (!track)
-				return reply
-					.status(404)
-					.send({ error: `Track ${body.trackId} not found` });
+			if (!exists) {
+				try {
+					const fetched = (await hifiClient.getTracks([trackId]))[0];
+					if (fetched) {
+						await upsertHifiTrack(fetched);
+						scheduleEnrichTrack(String(fetched.id));
+					}
+				} catch {
+					// hifi-api unreachable / unknown id — fall through to null below.
+				}
+				const recheck = await prisma.track.findUnique({
+					where: { id: trackId },
+					select: { id: true },
+				});
+				if (!recheck) trackId = null;
+			}
+		}
+
+		// Only attach artist/album foreign keys that actually exist (the track
+		// ingest above creates them when known) to avoid FK violations.
+		let artistId = body.artistId || null;
+		if (artistId) {
+			const a = await prisma.artist.findUnique({
+				where: { id: artistId },
+				select: { id: true },
+			});
+			if (!a) artistId = null;
+		}
+		let albumId = body.albumId || null;
+		if (albumId) {
+			const al = await prisma.album.findUnique({
+				where: { id: albumId },
+				select: { id: true },
+			});
+			if (!al) albumId = null;
 		}
 
 		const completionRatio =
@@ -68,9 +110,9 @@ export async function interactionsRoutes(app: FastifyInstance) {
 		const created = await prisma.userInteraction.create({
 			data: {
 				userId: user.id,
-				trackId: body.trackId || null,
-				artistId: body.artistId || null,
-				albumId: body.albumId || null,
+				trackId,
+				artistId,
+				albumId,
 				eventType: body.eventType,
 				playDurationSec: body.playDurationSec ?? null,
 				trackDurationSec: body.trackDurationSec ?? null,

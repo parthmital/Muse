@@ -5,12 +5,14 @@ import Image from "next/image";
 import { IconButton } from "./ui/IconButton";
 import { TrackInfo } from "./TrackInfo";
 import { ProgressBar } from "./ui/ProgressBar";
+import { VolumeSlider } from "./ui/VolumeSlider";
 import { QueuePanel } from "./QueuePanel";
 import { NowPlaying } from "./NowPlaying";
 import { usePlayer } from "@/context/PlayerContext";
 import { useSongActions } from "@/hooks/useContextMenu";
 import { useToast } from "@/context/ToastContext";
 import { DynamicActionMenu } from "./DynamicActionMenu";
+import { trackKey } from "@/lib/trackKey";
 
 export function Player() {
 	const {
@@ -36,9 +38,7 @@ export function Player() {
 	const [showNowPlaying, setShowNowPlaying] = useState(false);
 	const [lastVolume, setLastVolume] = useState(0.7);
 
-	const songKey = currentTrack
-		? `${currentTrack.title}-${currentTrack.artist}`
-		: "";
+	const songKey = currentTrack ? trackKey(currentTrack) : "";
 	const liked = currentTrack ? isLiked(songKey, currentTrack.liked) : false;
 
 	const handleLike = () => {
@@ -106,20 +106,23 @@ export function Player() {
 						className="flex-1"
 					/>
 
-					<div className="flex items-center gap-2">
+					<div className="group relative flex items-center">
 						<IconButton
 							icon="Volume"
 							alt="Volume"
 							ariaLabel={volume === 0 ? "Unmute" : "Mute"}
 							onClick={toggleMute}
 						/>
-						<div className="w-20">
-							<ProgressBar
-								progress={volume * 100}
-								duration={100}
-								onSeek={(v) => setVolume(v / 100)}
-								showTimes={false}
-							/>
+						{/* Vertical slider popover. `pb-2` bridges the gap to the icon so
+						    the hover target stays continuous. */}
+						<div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 pb-2 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+							<div className="flex justify-center rounded-lg border border-neutral-800 bg-neutral-900 p-3 shadow-xl">
+								<VolumeSlider
+									value={volume}
+									onChange={setVolume}
+									className="h-24"
+								/>
+							</div>
 						</div>
 					</div>
 
@@ -170,67 +173,66 @@ export function Player() {
 			{/* ── Mobile mini player ─────────────────────────────────────────── */}
 			{currentTrack && (
 				<div
-					className="fixed inset-x-2 z-40 flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900/95 px-3 py-2 backdrop-blur-md md:hidden"
-					style={{ bottom: "calc(3.6rem + env(safe-area-inset-bottom))" }}
+					className="fixed inset-x-2 z-40 overflow-hidden rounded-2xl bg-slate-700/80 px-3 pt-2 pb-3 backdrop-blur-md md:hidden"
+					style={{ bottom: "calc(5.5rem + env(safe-area-inset-bottom))" }}
 				>
-					<button
-						onClick={() => setShowNowPlaying(true)}
-						className="flex min-w-0 flex-1 items-center gap-3 text-left"
-						aria-label="Open now playing"
-					>
-						<div className="relative h-10 w-10 shrink-0 overflow-hidden rounded">
-							{currentTrack.img ? (
-								<Image
-									src={currentTrack.img}
-									alt={currentTrack.title}
-									fill
-									sizes="40px"
-									className="object-cover"
-								/>
-							) : (
-								<div className="h-full w-full bg-neutral-800" />
-							)}
-						</div>
-						<div className="min-w-0">
-							<p className="truncate text-sm font-medium text-white">
-								{currentTrack.title}
-							</p>
-							<p className="truncate text-xs text-neutral-400">
-								{currentTrack.artist}
-							</p>
-						</div>
-					</button>
-					<IconButton
-						icon="Like"
-						alt="Like"
-						ariaLabel={liked ? "Unlike" : "Like"}
-						ariaPressed={liked}
-						filled={liked}
-						onClick={handleLike}
-					/>
-					<IconButton
-						icon={isPlaying ? "Pause" : "Play"}
-						alt={isPlaying ? "Pause" : "Play"}
-						ariaLabel={isPlaying ? "Pause" : "Play"}
-						ariaPressed={isPlaying}
-						onClick={togglePlay}
-					/>
-				</div>
-			)}
+					<div className="flex items-center gap-3">
+						<button
+							onClick={() => setShowNowPlaying(true)}
+							className="flex min-w-0 flex-1 items-center gap-3 text-left"
+							aria-label="Open now playing"
+						>
+							<div className="relative h-10 w-10 shrink-0 overflow-hidden rounded">
+								{currentTrack.img ? (
+									<Image
+										src={currentTrack.img}
+										alt={currentTrack.title}
+										fill
+										sizes="40px"
+										className="object-cover"
+									/>
+								) : (
+									<div className="h-full w-full bg-neutral-800" />
+								)}
+							</div>
+							<div className="min-w-0">
+								<p className="truncate text-base text-white">
+									{currentTrack.title}
+								</p>
+								<p className="truncate text-sm text-neutral-300">
+									{currentTrack.artist}
+								</p>
+							</div>
+						</button>
+						<IconButton
+							icon="Add to Library"
+							alt="Save to library"
+							ariaLabel={liked ? "Remove from library" : "Save to library"}
+							ariaPressed={liked}
+							filled={liked}
+							onClick={handleLike}
+						/>
+						<IconButton
+							icon={isPlaying ? "Pause Simple" : "Play Simple"}
+							alt={isPlaying ? "Pause" : "Play"}
+							ariaLabel={isPlaying ? "Pause" : "Play"}
+							ariaPressed={isPlaying}
+							onClick={togglePlay}
+						/>
+					</div>
 
-			{/* Mobile progress hairline under the mini player */}
-			{currentTrack && (
-				<div
-					className="fixed inset-x-2 z-40 h-0.5 overflow-hidden rounded-full bg-neutral-800 md:hidden"
-					style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
-					aria-hidden
-				>
+					{/* Integrated progress hairline along the bottom edge */}
 					<div
-						className="h-full bg-white"
-						style={{
-							width: duration ? `${(progress / duration) * 100}%` : "0%",
-						}}
-					/>
+						className="absolute inset-x-3 bottom-1 h-0.5 overflow-hidden rounded-full bg-white/25"
+						aria-hidden
+					>
+						<div
+							className="h-full rounded-full bg-white"
+							style={{
+								width: duration ? `${(progress / duration) * 100}%` : "0%",
+							}}
+						/>
+					</div>
 				</div>
 			)}
 

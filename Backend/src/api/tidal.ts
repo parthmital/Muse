@@ -88,6 +88,16 @@ const missingImageCache = new (await import("lru-cache")).LRUCache<
 	ttl: 1000 * 60 * 15,
 });
 
+// Resolving a genre grid is heavy (dozens of Tidal lookups). Cache the resolved
+// list per tag so switching filters back and forth is instant.
+const genreAlbumCache = new (await import("lru-cache")).LRUCache<
+	string,
+	unknown[]
+>({
+	max: 200,
+	ttl: 1000 * 60 * 60,
+});
+
 // ── Normalizers ──────────────────────────────────────────────────────────────
 
 function normalizeTrack(raw: any) {
@@ -812,13 +822,20 @@ export async function tidalRoutes(app: FastifyInstance) {
 		"/tidal/genre-albums",
 		async (req) => {
 			const tag = req.query.tag?.trim();
-			const limit = Math.min(Number(req.query.limit) || 16, 30);
+			const limit = Math.min(Number(req.query.limit) || 50, 50);
+			const cacheKey = `${(tag ?? "__all__").toLowerCase()}:${limit}`;
+			const cached = genreAlbumCache.get(cacheKey);
+			if (cached) return { items: cached };
 			try {
 				// No tag = the "All" tab → genuine global chart popularity.
 				const albums = tag
 					? await fetchAlbumsByTag(tag, limit)
 					: await fetchPopularAlbums(limit);
-				return { items: albums.map(normalizeAlbum).filter(Boolean) };
+				const items = albums.map(normalizeAlbum).filter(Boolean);
+				// Only cache a complete grid — don't lock in a short list from a
+				// transient upstream hiccup.
+				if (items.length >= limit) genreAlbumCache.set(cacheKey, items);
+				return { items };
 			} catch (err) {
 				log.error({ err, tag }, "Failed to load genre albums");
 				return { items: [] };

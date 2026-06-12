@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { FilterBar } from "@/components/FilterBar";
 import { MediaGrid } from "@/components/MediaGrid";
 import { TrackInfo } from "@/components/TrackInfo";
@@ -10,13 +11,22 @@ import { MediaItem } from "@/components/MediaCard";
 import { ActionMenu } from "@/components/ui/ActionMenu";
 import { Dialog } from "@/components/ui/Dialog";
 import { useLibraryManager } from "@/hooks/useLibraryManager";
+import { useMediaActions } from "@/hooks/useMediaActions";
 import { useViewMode } from "@/hooks/useViewMode";
 import { useSearchFilter } from "@/hooks/useSearchFilter";
 import { useDialogState } from "@/hooks/useDialogState";
 import { useSorting } from "@/hooks/useSorting";
 import { LibrarySkeleton } from "@/components/ui/Skeletons";
+import { useAuth } from "@/context/AuthContext";
 
 // We no longer rely on ANY static data.
+
+const LIBRARY_CATEGORIES: { label: string; href: string }[] = [
+	{ label: "Playlists", href: "/library?filter=Playlists" },
+	{ label: "Albums", href: "/library?filter=Albums" },
+	{ label: "Artists", href: "/library?filter=Artists" },
+	{ label: "Liked Songs", href: "/liked" },
+];
 
 function LibraryContentInner() {
 	const searchParams = useSearchParams();
@@ -39,6 +49,8 @@ function LibraryContentInner() {
 		addCustomPlaylist,
 		removeCustomPlaylist,
 	} = useLibraryManager();
+	const { share, download } = useMediaActions();
+	const { user } = useAuth();
 
 	const allItems = [...customPlaylists];
 
@@ -75,7 +87,7 @@ function LibraryContentInner() {
 			type: "mix",
 			title: newPlaylistName.trim(),
 			songs: 0,
-			desc: "Parth Mital",
+			desc: user?.displayName ?? "",
 		};
 
 		// Check if it already exists
@@ -88,7 +100,6 @@ function LibraryContentInner() {
 		setNewPlaylistName("");
 		setCreateError(null);
 		closeCreateDialog();
-		console.log("Created custom playlist:", newPlaylistName.trim());
 	};
 
 	const LIBRARY_COMPARATORS: Record<
@@ -120,131 +131,174 @@ function LibraryContentInner() {
 
 	return (
 		<>
-			<FilterBar
-				isLibrary
-				viewMode={viewMode}
-				onViewModeChange={setViewMode}
-				sortBy={sortBy}
-				onSortChange={setSortBy}
-				onSearchChange={setSearchQuery}
-				sortOrder={sortOrder}
-				onSortOrderChange={setSortOrder}
-				onAdd={() => openCreateDialog()}
-			/>
-			{!isInitialized ? (
-				<div className="flex flex-col gap-2 opacity-50">
-					<div className="p-4 text-white">Loading your library...</div>
+			{/* ── Mobile layout ──────────────────────────────────────────────── */}
+			<div className="flex flex-col gap-4 md:hidden">
+				<div className="flex items-center gap-3">
+					<div className="flex grow items-center gap-2 rounded-lg bg-neutral-900 px-3 py-2 text-white">
+						<input
+							type="text"
+							placeholder="Search library"
+							aria-label="Search library"
+							onChange={(e) => setSearchQuery(e.target.value)}
+							className="grow bg-transparent outline-none placeholder:text-neutral-500"
+						/>
+						<IconButton icon="Search" alt="Search" filled noHover />
+					</div>
+					<IconButton
+						icon="Add"
+						alt="Create playlist"
+						ariaLabel="Create playlist"
+						onClick={() => openCreateDialog()}
+					/>
 				</div>
-			) : viewMode === "grid" ? (
-				<MediaGrid items={finalItems} />
-			) : (
-				<div className="flex flex-col gap-2">
-					{finalItems.length > 0 ? (
-						finalItems.map((item, index) => {
-							const isPinned = item.pinned ?? false;
-							const isCustom = customPlaylists.some(
-								(cp) => cp.title === item.title,
-							);
 
-							const handleTogglePin = () => {
-								const newPinnedState = !isPinned;
-								togglePin(item.title, isPinned);
-								console.log(
-									`${newPinnedState ? "Pinned" : "Unpinned"}: ${item.title}`,
+				<div className="flex items-center text-white">
+					<div className="ml-auto">
+						<IconButton
+							icon={viewMode === "grid" ? "Grid" : "List"}
+							alt="Toggle view"
+							ariaLabel="Toggle view"
+							onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
+						/>
+					</div>
+				</div>
+
+				{!filter && (
+					<div className="flex flex-col">
+						{LIBRARY_CATEGORIES.map((cat) => (
+							<Link
+								key={cat.label}
+								href={cat.href}
+								className="flex items-center justify-between border-b border-neutral-800 py-5 last:border-b-0"
+							>
+								<span className="text-2xl font-bold text-white">
+									{cat.label}
+								</span>
+								<IconButton icon="Right" alt="" noHover />
+							</Link>
+						))}
+					</div>
+				)}
+
+				{filter && <MediaGrid items={finalItems} />}
+			</div>
+
+			{/* ── Desktop layout ─────────────────────────────────────────────── */}
+			<div className="hidden flex-col gap-6 md:flex">
+				<FilterBar
+					isLibrary
+					viewMode={viewMode}
+					onViewModeChange={setViewMode}
+					sortBy={sortBy}
+					onSortChange={setSortBy}
+					onSearchChange={setSearchQuery}
+					sortOrder={sortOrder}
+					onSortOrderChange={setSortOrder}
+					onAdd={() => openCreateDialog()}
+				/>
+				{!isInitialized ? (
+					<div className="flex flex-col gap-2 opacity-50">
+						<div className="p-4 text-white">Loading your library...</div>
+					</div>
+				) : viewMode === "grid" ? (
+					<MediaGrid items={finalItems} />
+				) : (
+					<div className="flex flex-col gap-2">
+						{finalItems.length > 0 ? (
+							finalItems.map((item, index) => {
+								const isPinned = item.pinned ?? false;
+								const isCustom = customPlaylists.some(
+									(cp) => cp.title === item.title,
 								);
-							};
 
-							return (
-								<div
-									key={index}
-									className="group/row grid-cols-song-list-4 grid cursor-pointer items-center gap-6 rounded-lg px-4 py-2 hover:bg-neutral-900"
-								>
-									<div className="relative flex h-10 w-10 items-center justify-center">
-										<div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/row:opacity-100">
-											<IconButton icon="Play Simple" alt="Play" noHover />
+								const handleTogglePin = () => {
+									togglePin(item.title, isPinned);
+								};
+
+								return (
+									<div
+										key={index}
+										className="group/row grid-cols-song-list-4 grid cursor-pointer items-center gap-6 rounded-lg px-4 py-2 hover:bg-neutral-900"
+									>
+										<div className="relative flex h-10 w-10 items-center justify-center">
+											<div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/row:opacity-100">
+												<IconButton icon="Play Simple" alt="Play" noHover />
+											</div>
+											<span className="text-neutral-400 opacity-100 group-hover/row:opacity-0">
+												{index + 1}
+											</span>
 										</div>
-										<span className="text-neutral-400 opacity-100 group-hover/row:opacity-0">
-											{index + 1}
-										</span>
-									</div>
 
-									<div className="min-w-0 flex-1">
-										<TrackInfo
-											image={item.imageUrl || ""}
-											title={item.title}
-											artist={
-												item.type === "artist"
-													? ""
-													: item.artist || item.desc || ""
-											}
-										/>
-									</div>
+										<div className="min-w-0 flex-1">
+											<TrackInfo
+												image={item.imageUrl || ""}
+												title={item.title}
+												artist={
+													item.type === "artist"
+														? ""
+														: item.artist || item.desc || ""
+												}
+											/>
+										</div>
 
-									<div className="text-neutral-400">
-										{item.songs ? `${item.songs} songs` : ""}
-									</div>
+										<div className="text-neutral-400">
+											{item.songs ? `${item.songs} songs` : ""}
+										</div>
 
-									<div className="pointer-events-none flex items-center gap-6 opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100">
-										<ActionMenu
-											trigger={<IconButton icon="More" alt="More" />}
-											items={[
-												{
-													label: isPinned ? "Unpin" : "Pin",
-													icon: "Pin",
-													onClick: handleTogglePin,
-												},
-												...(item.type === "artist"
-													? []
-													: [
-															{
-																label: "Add to Queue",
-																icon: "Add to Queue",
-																onClick: () =>
-																	console.log("Add to Queue", item.title),
-															},
-															{
-																label: "Download",
-																icon: "Download",
-																onClick: () =>
-																	console.log("Download", item.title),
-															},
-														]),
-												{
-													label: "Share",
-													icon: "Share",
-													onClick: () => console.log("Share", item.title),
-												},
-												{
-													label: "Delete",
-													icon: "Delete",
-													onClick: () => {
-														if (isCustom) {
-															removeCustomPlaylist(item.title);
-														} else {
-															console.log("Delete", item.title);
-														}
+										<div className="pointer-events-none flex items-center gap-6 opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100">
+											<ActionMenu
+												trigger={<IconButton icon="More" alt="More" />}
+												items={[
+													{
+														label: isPinned ? "Unpin" : "Pin",
+														icon: "Pin",
+														onClick: handleTogglePin,
 													},
-													variant: "danger" as const,
-												},
-											]}
-										/>
+													...(item.type === "artist"
+														? []
+														: [
+																{
+																	label: "Download",
+																	icon: "Download",
+																	onClick: () => download(),
+																},
+															]),
+													{
+														label: "Share",
+														icon: "Share",
+														onClick: () => share(item.title),
+													},
+													...(isCustom
+														? [
+																{
+																	label: "Delete",
+																	icon: "Delete",
+																	onClick: () =>
+																		removeCustomPlaylist(item.title),
+																	variant: "danger" as const,
+																},
+															]
+														: []),
+												]}
+											/>
+										</div>
 									</div>
-								</div>
-							);
-						})
-					) : (
-						<div className="flex w-full flex-col items-center justify-center py-20 text-center">
-							<p className="text-lg text-neutral-500">
-								No library items found.
-							</p>
-							<p className="text-sm text-neutral-600">
-								Add artists, albums, or playlists to your library to see them
-								here.
-							</p>
-						</div>
-					)}
-				</div>
-			)}
+								);
+							})
+						) : (
+							<div className="flex w-full flex-col items-center justify-center py-20 text-center">
+								<p className="text-lg text-neutral-500">
+									No library items found.
+								</p>
+								<p className="text-sm text-neutral-600">
+									Add artists, albums, or playlists to your library to see them
+									here.
+								</p>
+							</div>
+						)}
+					</div>
+				)}
+			</div>
 
 			<Dialog
 				isOpen={isCreateDialogOpen}

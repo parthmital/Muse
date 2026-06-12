@@ -15,6 +15,7 @@ import { contextMenuRoutes } from "./api/contextMenu.js";
 import { actionRoutes } from "./api/actions.js";
 import { lastfmRoutes } from "./api/lastfm.js";
 import { authRoutes } from "./api/auth.js";
+import { settingsRoutes } from "./api/settings.js";
 import { prisma, initDb, disconnectDb } from "./db/prisma.js";
 import { ensureUser } from "./db/repositories/users.js";
 import { registerAuth } from "./auth.js";
@@ -103,6 +104,7 @@ function cacheControlFor(method: string, url: string): string | null {
 		path.startsWith("/browse/recent-searches") ||
 		path.startsWith("/context-menu") ||
 		path.startsWith("/auth") ||
+		path === "/settings" ||
 		path === "/metrics" ||
 		path === "/health"
 	) {
@@ -158,6 +160,7 @@ await app.register(contextMenuRoutes);
 await app.register(actionRoutes);
 await app.register(lastfmRoutes);
 await app.register(authRoutes);
+await app.register(settingsRoutes);
 
 app.setErrorHandler((error, request, reply) => {
 	app.log.error(

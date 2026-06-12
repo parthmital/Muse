@@ -13,18 +13,40 @@ datasource db {
 model User {
   id         String  @id
   externalId String  @unique @map("external_id")
+  // Account fields. Optional so the legacy dev user and auto-provisioned
+  // interaction users (which have no credentials) remain valid; the auth layer
+  // enforces presence for real signups/logins.
+  email        String? @unique
+  passwordHash String? @map("password_hash")
+  displayName  String? @map("display_name")
   isNew      Int     @default(1) @map("is_new")
   createdAt  Int     @default(dbgenerated("(unixepoch())")) @map("created_at")
   updatedAt  Int     @default(dbgenerated("(unixepoch())")) @map("updated_at")
 
   interactions UserInteraction[]
   profile      UserProfile?
+  settings     UserSetting?
   library      UserLibrary[]
   playlists    Playlist[]
   recommendations Recommendation[]
   searchHistory   SearchHistory[]
 
   @@map("users")
+}
+
+model UserSetting {
+  userId           String  @id @map("user_id")
+  streamingQuality String  @default("high") @map("streaming_quality")
+  downloadQuality  String  @default("high") @map("download_quality")
+  dataSaver        Int     @default(0) @map("data_saver")
+  gaplessPlayback  Int     @default(1) @map("gapless_playback")
+  automix          Int     @default(1)
+  allowExplicit    Int     @default(1) @map("allow_explicit")
+  updatedAt        Int     @default(dbgenerated("(unixepoch())")) @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_settings")
 }
 
 model Artist {
@@ -262,6 +284,31 @@ model LastfmCache {
 
   @@index([expiresAt], name: "lastfm_cache_expires_idx")
   @@map("lastfm_cache")
+}
+
+// Persistent Last.fm → Tidal resolution cache. Last.fm exposes no shared
+// identifier with Tidal (only name + sometimes an MBID), so every cross-service
+// lookup has to start from a text search. This table remembers the outcome of
+// that search — keyed by entity type + a normalized lookup key — so repeat
+// resolutions are free and, critically, *negative* results are cached too
+// (tidalId = NULL means "confirmed not on Tidal", so we stop re-searching it).
+// mbid/isrc are stored when known so a later async pass can upgrade a fuzzy
+// match to an exact one without a schema change.
+model ServiceMapping {
+  entityType String  @map("entity_type") // "track" | "artist" | "album"
+  lfKey      String  @map("lf_key") // normalized "artist|title" / "artist" / "artist|album"
+  tidalId    String? @map("tidal_id") // NULL = confirmed no-match (negative cache)
+  confidence Float   @default(0) // 0..1 final match score
+  method     String  @default("fuzzy") // "exact" | "fuzzy" | "manual" | "negative"
+  mbid       String?
+  isrc       String?
+  payload    String? // JSON snapshot of the resolved Tidal entity (zero-network cache hit)
+  resolvedAt Int     @map("resolved_at")
+  expiresAt  Int     @map("expires_at")
+
+  @@id([entityType, lfKey])
+  @@index([expiresAt], name: "service_mapping_expires_idx")
+  @@map("service_mappings")
 }
 
 model HomepageCache {

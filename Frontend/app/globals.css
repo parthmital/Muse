@@ -52,6 +52,29 @@
 		max-width: none;
 		/* Prevent tailwind from shrinking images via max-width 100% */
 	}
+
+	/* Thin themed scrollbars everywhere. Horizontal carousels opt out via the
+	   `.scrollbar-hide` utility (more specific, so it still wins below). */
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: #404040 transparent;
+	}
+	::-webkit-scrollbar {
+		width: 10px;
+		height: 10px;
+	}
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	::-webkit-scrollbar-thumb {
+		background-color: #404040;
+		border: 2px solid transparent;
+		background-clip: padding-box;
+		border-radius: 9999px;
+	}
+	::-webkit-scrollbar-thumb:hover {
+		background-color: #525252;
+	}
 }
 
 @layer utilities {

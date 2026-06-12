@@ -12,10 +12,10 @@ import {
 	deletePlaylist,
 	executeAction,
 } from "@/lib/api";
-
-const DEV_USER_ID = "dev-user-001";
+import { useAuth } from "@/context/AuthContext";
 
 export function useLibraryManager() {
+	const { user } = useAuth();
 	const { data: libraryData, mutate: mutateLibrary } = useSWR<{
 		library: { itemType: string; itemId: string; isPinned: boolean }[];
 	}>(`${API_BASE}/library`, swrFetcher);
@@ -128,10 +128,10 @@ export function useLibraryManager() {
 				false,
 			);
 
-			await executeAction("toggle_pin", type, title, DEV_USER_ID);
+			if (user) await executeAction("toggle_pin", type, title, user.id);
 			mutateLibrary();
 		},
-		[libraryAlbums, libraryPlaylists, libraryArtists, mutateLibrary],
+		[libraryAlbums, libraryPlaylists, libraryArtists, mutateLibrary, user],
 	);
 
 	const addCustomPlaylist = useCallback(

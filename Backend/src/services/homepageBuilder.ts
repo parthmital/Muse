@@ -721,6 +721,68 @@ async function getTopGenreTags(
 	}
 }
 
+// Static, broadly-popular genres used as the last resort when a user's local
+// profile and Last.fm's charts still can't fill the shelf.
+const FALLBACK_GENRES = [
+	"Pop",
+	"Rock",
+	"Hip Hop",
+	"Electronic",
+	"Indie",
+	"R&B",
+	"Jazz",
+	"Classical",
+	"Metal",
+	"Folk",
+	"Soul",
+	"Country",
+	"Dance",
+	"Alternative",
+	"Funk",
+	"Blues",
+	"Reggae",
+	"Punk",
+];
+
+/**
+ * Guarantee `count` distinct genres so the Genre Mixes shelf never repeats a
+ * mix. Starts from the user's own genres, then tops up (deduping
+ * case-insensitively) from Last.fm's globally popular tags and finally a
+ * static fallback list.
+ */
+async function fillGenres(seed: string[], count: number): Promise<string[]> {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	const add = (genre: string) => {
+		const key = genre.trim().toLowerCase();
+		if (!key || seen.has(key)) return;
+		seen.add(key);
+		out.push(genre.trim());
+	};
+
+	for (const genre of seed) add(genre);
+	if (out.length >= count) return out.slice(0, count);
+
+	// Top up from Last.fm's globally popular tags.
+	try {
+		const tags = await lastfmClient.getTopTags(50);
+		for (const genre of formatTagNames(tags.map((t) => t.name))) {
+			if (out.length >= count) break;
+			add(genre);
+		}
+	} catch (error) {
+		log.warn({ err: error }, "Failed to top up genres from Last.fm");
+	}
+
+	// Final static fallback to guarantee a full shelf.
+	for (const genre of FALLBACK_GENRES) {
+		if (out.length >= count) break;
+		add(genre);
+	}
+
+	return out.slice(0, count);
+}
+
 /**
  * Generate genre mix cover using the top artist's image (same approach as artist mixes)
  */
@@ -1023,37 +1085,17 @@ export async function buildHomepageShelvesForExternalUser(
 	// Get top genre tags from Last.fm and create genre mixes
 	let topGenreSeed: string | null = null;
 	try {
-		let topGenres = await getTopGenreTags(user.id, SECTION_ITEM_COUNT);
+		const userGenres = await getTopGenreTags(user.id, SECTION_ITEM_COUNT);
 
-		// If no local genres available, fetch directly from Last.fm chart.getTopTags
-		if (topGenres.length === 0) {
-			log.debug("No local genres, fetching from Last.fm chart.getTopTags");
-			const tags = await lastfmClient.getTopTags(SECTION_ITEM_COUNT);
-			// Format tags: capitalize first letter of each word
-			topGenres = tags.map((t) =>
-				t.name
-					.split(/[-\s]+/)
-					.map(
-						(word: string) =>
-							word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
-					)
-					.join(" "),
-			);
-			// Filter duplicates
-			const seen = new Set<string>();
-			topGenres = topGenres.filter((tag) => {
-				const key = tag.toLowerCase();
-				if (seen.has(key)) return false;
-				seen.add(key);
-				return true;
-			});
-		}
+		// Guarantee SECTION_ITEM_COUNT distinct genres so the shelf shows a full
+		// set of unique mixes instead of repeating the user's few local genres.
+		const topGenres = await fillGenres(userGenres, SECTION_ITEM_COUNT);
 
 		topGenreSeed = topGenres[0] ?? null;
 
-		// Build genre mixes - we now always have genres (from local DB or Last.fm)
-		for (let i = 0; i < SECTION_ITEM_COUNT; i++) {
-			const genre = topGenres[i % topGenres.length];
+		// Build genre mixes - one per distinct genre (no wrap-around duplicates).
+		for (let i = 0; i < topGenres.length; i++) {
+			const genre = topGenres[i];
 			const genreMixId = `sys-genre-${externalId}-${i + 1}`;
 			const genreMixTitle = buildGenreMixTitle(genre);
 

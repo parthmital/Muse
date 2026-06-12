@@ -44,6 +44,11 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package.json ./package.json
+# prisma.config.ts supplies the datasource URL to the Prisma CLI; the entrypoint
+# runs `prisma db push` at startup, so it must be present in the runtime image.
+COPY --from=build /app/prisma.config.ts ./prisma.config.ts
+COPY --from=build /app/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 
 # SQLite data directory (mount a volume here in production). The app creates it
 # on startup if missing; declaring it keeps the path explicit.
@@ -51,6 +56,11 @@ RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 
 EXPOSE 5000
+
+# The entrypoint runs `prisma db push` to create/sync the schema (a fresh volume
+# starts empty), then execs the command below. Worker overrides the command in
+# docker-compose; the entrypoint applies to both.
+ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # Default: start the API server.
 CMD ["node", "dist/index.js"]

@@ -5,13 +5,16 @@
  * This replaces keyword-based searches with actual chart data.
  */
 
-import {
-	lastfmClient,
-	LastFMTrack,
-	LastFMArtist,
-	LastFMAlbum,
-} from "./lastfmClient.js";
+import { lastfmClient, LastFMAlbum } from "./lastfmClient.js";
 import { hifiClient, HifiTrack, HifiArtist, HifiAlbum } from "./hifiClient.js";
+import {
+	titleSimilarity,
+	nameSimilarity,
+	pickBest,
+	THRESHOLDS,
+	type ScoredCandidate,
+} from "./matching.js";
+import { resolveCached } from "./serviceMapping.js";
 import { config } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import { logger } from "../logger.js";
@@ -44,49 +47,21 @@ export interface EnrichedAlbum extends HifiAlbum {
 	lastFmRank?: number;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Resolution helpers ─────────────────────────────────────────────────────
+//
+// Last.fm entities (name + artist) are resolved to Tidal via a text search +
+// fuzzy scoring (matching.ts), wrapped in a persistent cache (serviceMapping.ts)
+// that also remembers *negative* results so unmatched entries aren't re-searched
+// forever. The relevance gate is shared across all three entity types: nothing
+// that clears the threshold → null, never items[0]. A bad query (or an entity
+// missing from Tidal) must NOT silently resolve to an unrelated result — that's
+// how off-theme tracks leak into mixes. A short, correct mix beats a wrong one.
 
-function normalizeText(text: string): string {
-	return text
-		.toLowerCase()
-		.replace(/[^a-z0-9\s]/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
-}
-
-function similarityScore(a: string, b: string): number {
-	const normA = normalizeText(a);
-	const normB = normalizeText(b);
-
-	if (normA === normB) return 1;
-	if (normA.includes(normB) || normB.includes(normA)) return 0.8;
-
-	const wordsA = new Set(normA.split(" "));
-	const wordsB = new Set(normB.split(" "));
-	const intersection = new Set([...wordsA].filter((x) => wordsB.has(x)));
-	const union = new Set([...wordsA, ...wordsB]);
-
-	return intersection.size / union.size;
-}
-
-function findBestMatch<T extends { title?: string; name?: string }>(
-	query: string,
-	items: T[],
-	threshold = 0.6,
-): T | null {
-	let bestMatch: T | null = null;
-	let bestScore = 0;
-
-	for (const item of items) {
-		const itemText = item.title ?? item.name ?? "";
-		const score = similarityScore(query, itemText);
-		if (score > bestScore && score >= threshold) {
-			bestScore = score;
-			bestMatch = item;
-		}
-	}
-
-	return bestMatch;
+function tidalArtistName(e: {
+	artist?: { name?: string };
+	artists?: Array<{ name?: string }>;
+}): string {
+	return e.artist?.name ?? e.artists?.[0]?.name ?? "";
 }
 
 // ── Track Methods ────────────────────────────────────────────────────────────
@@ -95,39 +70,30 @@ export async function searchTidalTrack(
 	title: string,
 	artist: string,
 ): Promise<HifiTrack | null> {
-	try {
-		// Search by "artist - title" for best results
-		const query = `${artist} ${title}`;
-		const result = await hifiClient.searchTracks(query, 10, 0);
-
-		if (!result.items.length) return null;
-
-		// Find best match by comparing both title and artist
-		let bestMatch: HifiTrack | null = null;
-		let bestScore = 0;
-
-		for (const track of result.items) {
-			const titleScore = similarityScore(title, track.title);
-			const artistScore = similarityScore(
-				artist,
-				track.artist?.name ?? track.artists?.[0]?.name ?? "",
+	return resolveCached<HifiTrack>("track", [artist, title], async () => {
+		try {
+			const result = await hifiClient.searchTracks(`${artist} ${title}`, 10, 0);
+			const scored: Array<ScoredCandidate<HifiTrack>> = result.items.map(
+				(t) => ({
+					item: t,
+					score:
+						titleSimilarity(title, t.title) * 0.6 +
+						nameSimilarity(artist, tidalArtistName(t)) * 0.4,
+					popularity: t.popularity ?? 0,
+				}),
 			);
-			const combinedScore = titleScore * 0.6 + artistScore * 0.4;
-
-			if (combinedScore > bestScore && combinedScore >= 0.5) {
-				bestScore = combinedScore;
-				bestMatch = track;
-			}
+			const best = pickBest(scored, THRESHOLDS.track);
+			if (!best) return { item: null, confidence: 0 };
+			return {
+				item: best.item,
+				confidence: best.score,
+				method: best.score >= 0.999 ? "exact" : "fuzzy",
+				isrc: best.item.isrc ?? null,
+			};
+		} catch {
+			return { item: null, confidence: 0 };
 		}
-
-		// Return null when nothing clears the relevance threshold rather than
-		// falling back to result.items[0]. A bad query (or a track missing from
-		// Tidal) must NOT silently resolve to an unrelated song — that's how
-		// off-theme tracks leak into mixes. A short, correct mix beats a wrong one.
-		return bestMatch;
-	} catch {
-		return null;
-	}
+	});
 }
 
 export async function fetchTrendingTracks(
@@ -221,20 +187,26 @@ export async function fetchPopularTracksByTag(
 export async function searchTidalArtist(
 	name: string,
 ): Promise<HifiArtist | null> {
-	try {
-		const result = await hifiClient.searchArtists(name, 10, 0);
-		const artists = result.artists?.items ?? [];
-
-		if (!artists.length) return null;
-
-		// Find best match by name similarity. Relevance gate (see
-		// searchTidalTrack): no match → null, never artists[0]. Falling back to
-		// the first result resolves a known Last.fm name to an unrelated artist.
-		const match = findBestMatch(name, artists);
-		return match;
-	} catch {
-		return null;
-	}
+	return resolveCached<HifiArtist>("artist", [name], async () => {
+		try {
+			const result = await hifiClient.searchArtists(name, 10, 0);
+			const artists = result.artists?.items ?? [];
+			const scored: Array<ScoredCandidate<HifiArtist>> = artists.map((a) => ({
+				item: a,
+				score: nameSimilarity(name, a.name),
+				popularity: a.popularity ?? 0,
+			}));
+			const best = pickBest(scored, THRESHOLDS.artist);
+			if (!best) return { item: null, confidence: 0 };
+			return {
+				item: best.item,
+				confidence: best.score,
+				method: best.score >= 0.999 ? "exact" : "fuzzy",
+			};
+		} catch {
+			return { item: null, confidence: 0 };
+		}
+	});
 }
 
 export async function fetchPopularArtists(
@@ -300,108 +272,142 @@ export async function searchTidalAlbum(
 	title: string,
 	artist: string,
 ): Promise<HifiAlbum | null> {
-	try {
-		const query = `${artist} ${title}`;
-		const result = await hifiClient.searchAlbums(query, 10, 0);
-
-		if (!result.items.length) return null;
-
-		// Find best match
-		let bestMatch: HifiAlbum | null = null;
-		let bestScore = 0;
-
-		for (const album of result.items) {
-			const titleScore = similarityScore(title, album.title);
-			const artistScore = similarityScore(
-				artist,
-				album.artist?.name ?? album.artists?.[0]?.name ?? "",
+	return resolveCached<HifiAlbum>("album", [artist, title], async () => {
+		try {
+			const result = await hifiClient.searchAlbums(`${artist} ${title}`, 10, 0);
+			const scored: Array<ScoredCandidate<HifiAlbum>> = result.items.map(
+				(a) => ({
+					item: a,
+					score:
+						titleSimilarity(title, a.title) * 0.6 +
+						nameSimilarity(artist, tidalArtistName(a)) * 0.4,
+					popularity: (a as { popularity?: number }).popularity ?? 0,
+				}),
 			);
-			const combinedScore = titleScore * 0.6 + artistScore * 0.4;
-
-			if (combinedScore > bestScore && combinedScore >= 0.5) {
-				bestScore = combinedScore;
-				bestMatch = album;
-			}
+			const best = pickBest(scored, THRESHOLDS.album);
+			if (!best) return { item: null, confidence: 0 };
+			return {
+				item: best.item,
+				confidence: best.score,
+				method: best.score >= 0.999 ? "exact" : "fuzzy",
+			};
+		} catch {
+			return { item: null, confidence: 0 };
 		}
-
-		// Relevance gate (see searchTidalTrack): no match → null, never items[0].
-		return bestMatch;
-	} catch {
-		return null;
-	}
+	});
 }
 
-export async function fetchPopularAlbums(
-	limit = 50,
-	period: "7day" | "1month" | "3month" = "7day",
+// Resolve a prioritized list of Last.fm album candidates to real Tidal albums,
+// stopping once `limit` unique albums are found. Over-fetch candidates upstream
+// so the relevance gate (searchTidalAlbum → null) and duplicates don't leave the
+// grid short of the requested count.
+async function resolveAlbumCandidates(
+	candidates: LastFMAlbum[],
+	limit: number,
 ): Promise<EnrichedAlbum[]> {
-	// Get top tags first
-	const topTags = await lastfmClient.getTopTags(10);
-	if (!topTags.length) return [];
-
 	const enriched: EnrichedAlbum[] = [];
-	const seenAlbums = new Set<string>();
+	const seenId = new Set<string>();
+	const batchSize = config.tidalResolveBatch;
 
-	// Fetch top albums from each popular tag
-	for (const tag of topTags.slice(0, 5)) {
-		if (enriched.length >= limit) break;
+	for (
+		let i = 0;
+		i < candidates.length && enriched.length < limit;
+		i += batchSize
+	) {
+		const batch = candidates.slice(i, i + batchSize);
 
-		const lastFmAlbums = await lastfmClient.getTopAlbumsByTag(tag.name, 20);
-
-		for (const lfAlbum of lastFmAlbums) {
-			if (enriched.length >= limit) break;
-
-			// Skip duplicates
-			const key = `${lfAlbum.name}|${lfAlbum.artist.name}`.toLowerCase();
-			if (seenAlbums.has(key)) continue;
-			seenAlbums.add(key);
-
-			const tidalAlbum = await searchTidalAlbum(
-				lfAlbum.name,
-				lfAlbum.artist.name,
-			);
-
-			if (tidalAlbum) {
-				enriched.push({
+		const results = await Promise.allSettled(
+			batch.map(async (lfAlbum) => {
+				const tidalAlbum = await searchTidalAlbum(
+					lfAlbum.name,
+					lfAlbum.artist.name,
+				);
+				if (!tidalAlbum) return null;
+				return {
 					...tidalAlbum,
 					lastFmPlayCount: lfAlbum.playcount
 						? parseInt(lfAlbum.playcount, 10)
 						: undefined,
-					lastFmRank: enriched.length + 1,
-				});
-			}
+				} as EnrichedAlbum;
+			}),
+		);
+
+		for (const result of results) {
+			if (result.status !== "fulfilled" || !result.value) continue;
+			// Different Last.fm entries can map to the same Tidal album — dedupe so
+			// the grid shows `limit` *distinct* albums.
+			const id = String(result.value.id);
+			if (seenId.has(id)) continue;
+			seenId.add(id);
+			result.value.lastFmRank = enriched.length + 1;
+			enriched.push(result.value);
+			if (enriched.length >= limit) break;
+		}
+
+		// Small delay between batches to avoid overwhelming the Tidal API.
+		if (i + batchSize < candidates.length && enriched.length < limit) {
+			await new Promise((r) => setTimeout(r, 100));
 		}
 	}
 
 	return enriched.slice(0, limit);
 }
 
-export async function fetchAlbumsByTag(
-	tag: string,
-	limit = 30,
+export async function fetchPopularAlbums(
+	limit = 50,
+	_period: "7day" | "1month" | "3month" = "7day",
 ): Promise<EnrichedAlbum[]> {
-	const lastFmAlbums = await lastfmClient.getTopAlbumsByTag(tag, limit * 2);
-	if (!lastFmAlbums.length) return [];
+	const topTags = await lastfmClient.getTopTags(10);
+	if (!topTags.length) return [];
 
-	const enriched: EnrichedAlbum[] = [];
+	// "All" must be genuine cross-genre popularity — NOT the single most popular
+	// tag's album list (which made the All tab identical to the Rock tab, since
+	// "rock" is Last.fm's #1 top tag). Pull each top genre's albums and round-
+	// robin interleave them so the blend draws evenly across genres.
+	const tags = topTags.slice(0, 6);
+	const perTag = Math.max(limit, 20);
+	const lists = await Promise.all(
+		tags.map((t) =>
+			lastfmClient.getTopAlbumsByTag(t.name, perTag).catch(() => []),
+		),
+	);
 
-	for (const lfAlbum of lastFmAlbums.slice(0, limit)) {
-		const tidalAlbum = await searchTidalAlbum(
-			lfAlbum.name,
-			lfAlbum.artist.name,
-		);
-
-		if (tidalAlbum) {
-			enriched.push({
-				...tidalAlbum,
-				lastFmPlayCount: lfAlbum.playcount
-					? parseInt(lfAlbum.playcount, 10)
-					: undefined,
-			});
+	const candidates: LastFMAlbum[] = [];
+	const seen = new Set<string>();
+	const maxLen = lists.reduce((m, l) => Math.max(m, l.length), 0);
+	for (let col = 0; col < maxLen; col++) {
+		for (const list of lists) {
+			const lfAlbum = list[col];
+			if (!lfAlbum) continue;
+			const key = `${lfAlbum.name}|${lfAlbum.artist.name}`.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			candidates.push(lfAlbum);
 		}
 	}
 
-	return enriched.slice(0, limit);
+	return resolveAlbumCandidates(candidates, limit);
+}
+
+export async function fetchAlbumsByTag(
+	tag: string,
+	limit = 50,
+): Promise<EnrichedAlbum[]> {
+	// Over-fetch (3×) so the relevance gate and duplicates don't leave us short
+	// of `limit` resolved albums.
+	const lastFmAlbums = await lastfmClient.getTopAlbumsByTag(tag, limit * 3);
+	if (!lastFmAlbums.length) return [];
+
+	const candidates: LastFMAlbum[] = [];
+	const seen = new Set<string>();
+	for (const lfAlbum of lastFmAlbums) {
+		const key = `${lfAlbum.name}|${lfAlbum.artist.name}`.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		candidates.push(lfAlbum);
+	}
+
+	return resolveAlbumCandidates(candidates, limit);
 }
 
 // ── Artist Top Tracks ────────────────────────────────────────────────────────

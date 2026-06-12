@@ -14,6 +14,34 @@ export const API_BASE =
 
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 
+// ── Auth token ───────────────────────────────────────────────────────────────
+// The session token is persisted in localStorage and attached as a Bearer
+// header on every request. AuthContext is the writer; this module is the reader.
+
+const TOKEN_KEY = "muse-token";
+
+export function getAuthToken(): string | null {
+	if (typeof window === "undefined") return null;
+	return window.localStorage.getItem(TOKEN_KEY);
+}
+
+export function setAuthToken(token: string | null): void {
+	if (typeof window === "undefined") return;
+	if (token) window.localStorage.setItem(TOKEN_KEY, token);
+	else window.localStorage.removeItem(TOKEN_KEY);
+}
+
+/** Clear the token and bounce to /login (called on an unexpected 401). */
+function handleUnauthorized(): void {
+	setAuthToken(null);
+	if (typeof window !== "undefined") {
+		const path = window.location.pathname;
+		if (path !== "/login" && path !== "/signup") {
+			window.location.href = "/login";
+		}
+	}
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface TidalTrack {
@@ -160,16 +188,23 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 	}
 
 	const requestPromise = (async () => {
+		const token = getAuthToken();
 		let res: Response;
 		try {
 			res = await fetch(url, {
 				...init,
 				headers: {
 					"Content-Type": "application/json",
+					...(token ? { Authorization: `Bearer ${token}` } : {}),
 					...init?.headers,
 				},
 			});
 		} catch (error) {
+			// Aborted requests (e.g. debounced search / live-search cleanup calling
+			// controller.abort()) are expected — propagate without logging an error.
+			if ((error as { name?: string } | null)?.name === "AbortError") {
+				throw error;
+			}
 			logger.error("apiFetch", "Network failure while calling backend", error, {
 				url,
 				method,
@@ -186,6 +221,12 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 				statusText: res.statusText,
 				body,
 			});
+			// An expired/invalid session on a non-auth route: drop the token and
+			// send the user to login. Auth routes (login/signup) surface their own
+			// 401s so the form can show "invalid credentials".
+			if (res.status === 401 && !path.startsWith("/auth")) {
+				handleUnauthorized();
+			}
 			throw new ApiError(res.status, body.error ?? res.statusText, body);
 		}
 
@@ -226,6 +267,11 @@ export class ApiError extends Error {
 // ── SWR fetcher (single export for reuse) ────────────────────────────────────
 
 export const swrFetcher = (pathOrUrl: string) => {
+	// Full URLs that point at our backend still need the auth header; route them
+	// through apiFetch by stripping API_BASE. External URLs fetch as-is.
+	if (pathOrUrl.startsWith(API_BASE)) {
+		return apiFetch(pathOrUrl.slice(API_BASE.length));
+	}
 	if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
 		return fetch(pathOrUrl).then((r) => r.json());
 	}
@@ -287,7 +333,7 @@ export async function fetchGenres(
 // to real TIDAL albums by the backend's relevance-gated matcher.
 export async function genreAlbums(
 	tag: string | null,
-	limit = 16,
+	limit = 50,
 	signal?: AbortSignal,
 ): Promise<SearchResult<TidalAlbum>> {
 	const q = tag
@@ -556,7 +602,7 @@ export async function removeTrackFromPlaylist(
 
 export async function getPlaylistTracks(
 	playlistId: string,
-): Promise<{ tracks: { track_id: string }[] }> {
+): Promise<{ tracks: { trackId: string }[] }> {
 	return apiFetch(`/playlists/${playlistId}/tracks`);
 }
 
@@ -647,4 +693,133 @@ export async function getLastFmSimilarTags(
 ): Promise<{ similar: LastFmSimilarTag[] } | null> {
 	const query = limit ? `?limit=${limit}` : "";
 	return apiFetch(`/lastfm/tag/${encodeURIComponent(tagName)}/similar${query}`);
+}
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+	id: string;
+	email: string | null;
+	displayName: string | null;
+}
+
+export interface AuthResult {
+	token: string;
+	tokenType: string;
+	expiresIn: number;
+	user: AuthUser;
+}
+
+export async function signup(
+	email: string,
+	password: string,
+	displayName: string,
+): Promise<AuthResult> {
+	return apiFetch(`/auth/signup`, {
+		method: "POST",
+		body: JSON.stringify({ email, password, displayName }),
+	});
+}
+
+export async function login(
+	email: string,
+	password: string,
+): Promise<AuthResult> {
+	return apiFetch(`/auth/login`, {
+		method: "POST",
+		body: JSON.stringify({ email, password }),
+	});
+}
+
+export async function getMe(): Promise<{ user: AuthUser }> {
+	return apiFetch(`/auth/me`);
+}
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+
+export interface UserSettings {
+	streamingQuality: string;
+	downloadQuality: string;
+	dataSaver: boolean;
+	gaplessPlayback: boolean;
+	automix: boolean;
+	allowExplicit: boolean;
+}
+
+export async function getSettings(): Promise<{ settings: UserSettings }> {
+	return apiFetch(`/settings`);
+}
+
+export async function updateSettings(
+	patch: Partial<UserSettings>,
+): Promise<{ settings: UserSettings }> {
+	return apiFetch(`/settings`, {
+		method: "PUT",
+		body: JSON.stringify(patch),
+	});
+}
+
+// ── Listening insights (profile) ─────────────────────────────────────────────
+
+export interface TopTrack {
+	id: string;
+	title: string;
+	artist: string | null;
+	artistId: string | null;
+	album: string | null;
+	coverUrl: string | null;
+	playCount: number;
+}
+
+export interface TopArtist {
+	id: string;
+	name: string;
+	pictureUrl: string | null;
+	playCount: number;
+}
+
+export async function getTopTracks(
+	userId: string,
+	limit = 10,
+): Promise<{ tracks: TopTrack[] }> {
+	return apiFetch(`/users/${userId}/top-tracks?limit=${limit}`);
+}
+
+export async function getTopArtists(
+	userId: string,
+	limit = 10,
+): Promise<{ artists: TopArtist[] }> {
+	return apiFetch(`/users/${userId}/top-artists?limit=${limit}`);
+}
+
+// ── Interactions (listening-event reporting) ─────────────────────────────────
+
+export type InteractionEventType =
+	| "play"
+	| "skip"
+	| "like"
+	| "unlike"
+	| "save"
+	| "unsave"
+	| "playlist_add"
+	| "repeat";
+
+export interface InteractionEvent {
+	eventType: InteractionEventType;
+	trackId?: string;
+	artistId?: string;
+	albumId?: string;
+	playDurationSec?: number;
+	trackDurationSec?: number;
+	occurredAt?: number;
+}
+
+export async function reportInteraction(
+	userId: string,
+	event: InteractionEvent,
+): Promise<void> {
+	await apiFetch(`/users/${userId}/interactions`, {
+		method: "POST",
+		body: JSON.stringify(event),
+	});
 }

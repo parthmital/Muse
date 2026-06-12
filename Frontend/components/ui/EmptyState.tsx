@@ -54,8 +54,8 @@ export function EmptyState({
 				<Image
 					src={`/icons/Name=${icon}, Filled=No.svg`}
 					alt=""
-					width={28}
-					height={28}
+					width={40}
+					height={40}
 					className="opacity-60 brightness-0 invert"
 				/>
 			</div>

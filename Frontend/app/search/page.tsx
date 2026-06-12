@@ -10,6 +10,7 @@ import { SectionHeader } from "@/components/SectionHeader";
 import { SongRow, Song } from "@/components/SongRow";
 import { FilterBar } from "@/components/FilterBar";
 import { MediaGrid } from "@/components/MediaGrid";
+import { SearchInput } from "@/components/ui/SearchInput";
 import { SearchSkeleton } from "@/components/ui/Skeletons";
 import { useTidalSearch } from "@/hooks/useTidalSearch";
 import {
@@ -118,9 +119,17 @@ function SearchContentInner() {
 	const topResultItem: MediaItem | null =
 		tidalArtists[0] ?? tidalAlbums[0] ?? null;
 
+	// Mobile-only search header (the global TopBar is hidden below md).
+	const mobileSearchHeader = (
+		<div className="flex items-center gap-3 md:hidden">
+			<SearchInput placeholder="What do you want to play?" />
+		</div>
+	);
+
 	if (query) {
 		return (
 			<div className="flex flex-col gap-6">
+				{mobileSearchHeader}
 				<FilterBar
 					filters={FILTERS}
 					activeFilter={activeFilter}
@@ -295,6 +304,7 @@ function SearchContentInner() {
 
 	return (
 		<div className="flex flex-col gap-6">
+			{mobileSearchHeader}
 			{recentSearches.length > 0 && (
 				<MediaShelf title="Recent Searches" items={recentSearches} />
 			)}

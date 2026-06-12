@@ -32,13 +32,11 @@ export function QueuePanel({ onClose }: { onClose?: () => void }) {
 						alt="Close queue"
 						ariaLabel="Close queue"
 						onClick={onClose}
-						width={28}
-						height={28}
 					/>
 				)}
 			</div>
 
-			<div className="scrollbar-hide flex-1 overflow-y-auto">
+			<div className="flex-1 overflow-y-auto">
 				{currentTrack && (
 					<>
 						<p className="px-1 py-2 text-xs font-bold tracking-wide text-neutral-500 uppercase">

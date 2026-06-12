@@ -10,6 +10,7 @@ import {
 	useId,
 	useContext,
 } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import { SearchInput } from "./SearchInput";
 import { useActionMenu } from "@/context/ActionMenuContext";
@@ -250,9 +251,13 @@ export function ActionMenu({
 
 	useEffect(() => {
 		const handleClickOutside = (event: MouseEvent) => {
+			const target = event.target as Node;
+			// The menu content is portaled to <body>, so it's outside wrapperRef.
+			// Treat clicks inside either the trigger wrapper or the menu as inside.
 			if (
 				wrapperRef.current &&
-				!wrapperRef.current.contains(event.target as Node)
+				!wrapperRef.current.contains(target) &&
+				!contentRef.current?.contains(target)
 			) {
 				closeMenu();
 			}
@@ -298,11 +303,20 @@ export function ActionMenu({
 		// Keep menu open when hovering over wrapper
 	};
 
-	const handleMouseLeave = () => {
-		// Close menu when hovering away from the wrapper
-		if (isOpen) {
-			closeMenu();
+	// Close on leave, but not when the pointer is moving between the trigger
+	// wrapper and the menu content (which is portaled to <body>, so the two are
+	// not in the same DOM subtree and each fires its own mouseleave).
+	const handleMouseLeave = (e: React.MouseEvent) => {
+		if (!isOpen) return;
+		const related = e.relatedTarget as Node | null;
+		if (
+			related &&
+			(wrapperRef.current?.contains(related) ||
+				contentRef.current?.contains(related))
+		) {
+			return;
 		}
+		closeMenu();
 	};
 
 	return (
@@ -321,95 +335,98 @@ export function ActionMenu({
 				{trigger}
 			</div>
 
-			{isOpen && (
-				<div
-					ref={contentRef}
-					style={{
-						position: "fixed",
-						top: coords?.y ?? 0,
-						left: coords?.x ?? 0,
-						maxWidth: menuBounds.maxWidth,
-						maxHeight: menuBounds.maxHeight,
-						overflowY: "auto",
-						overflowX: "hidden",
-						opacity: isPositioned ? 1 : 0,
-						visibility: isPositioned ? "visible" : "hidden",
-						pointerEvents: isPositioned ? "auto" : "none",
-						zIndex: 9999,
-						transition: "none",
-					}}
-					className="animate-in fade-in zoom-in-95 flex flex-col rounded-lg border border-neutral-800 bg-neutral-900 p-1 whitespace-nowrap shadow-lg duration-100"
-					onMouseEnter={handleMouseEnter}
-					onMouseLeave={handleMouseLeave}
-				>
-					{showSearch && (
-						<div className="mb-1" onClick={(e) => e.stopPropagation()}>
-							<SearchInput
-								placeholder="Filter..."
-								autoFocus
-								preventNavigation
-								onChange={setSearchQuery}
-								className="h-10! gap-2! rounded-md! bg-neutral-800/50! pr-3! pl-0!"
-							/>
-						</div>
-					)}
-					{filteredItems.map((item, index) => {
-						return (
-							<button
-								key={`${item.label}-${index}`}
-								onClick={(e) => {
-									e.stopPropagation();
-									item.onClick?.();
-									if (!showCheckmarks || item.checked === undefined) {
-										closeMenu();
-									}
-								}}
-								className={`flex w-full items-center gap-2 ${
-									showCheckmarks && item.checked !== undefined ? "" : "pr-3"
-								} group cursor-pointer rounded-md text-left text-sm whitespace-nowrap transition-colors hover:bg-neutral-800`}
-							>
-								{item.icon && item.icon !== "undefined" && (
-									<Image
-										src={`/icons/Name=${item.icon}, Filled=${
-											item.checked ? "Yes" : "No"
-										}.svg`}
-										alt=""
-										width={40}
-										height={40}
-										className={`shrink-0 ${
-											item.checked && item.variant !== "danger"
-												? "brightness-0 invert"
-												: ""
-										}`}
-									/>
-								)}
-								<span
-									className={`flex-1 font-medium ${
-										item.variant === "danger"
-											? "text-red-500"
-											: "text-neutral-300 group-hover:text-white"
-									}`}
-								>
-									{item.label}
-								</span>
-								{showCheckmarks && item.checked !== undefined && (
-									<Image
-										src={
-											item.checked
-												? "/icons/Name=Check, Filled=Yes.svg"
-												: "/icons/Name=Check, Filled=No.svg"
+			{isOpen &&
+				typeof document !== "undefined" &&
+				createPortal(
+					<div
+						ref={contentRef}
+						style={{
+							position: "fixed",
+							top: coords?.y ?? 0,
+							left: coords?.x ?? 0,
+							maxWidth: menuBounds.maxWidth,
+							maxHeight: menuBounds.maxHeight,
+							overflowY: "auto",
+							overflowX: "hidden",
+							opacity: isPositioned ? 1 : 0,
+							visibility: isPositioned ? "visible" : "hidden",
+							pointerEvents: isPositioned ? "auto" : "none",
+							zIndex: 9999,
+							transition: "none",
+						}}
+						className="animate-in fade-in zoom-in-95 flex flex-col rounded-lg border border-neutral-800 bg-neutral-900 p-1 whitespace-nowrap shadow-lg duration-100"
+						onMouseEnter={handleMouseEnter}
+						onMouseLeave={handleMouseLeave}
+					>
+						{showSearch && (
+							<div className="mb-1" onClick={(e) => e.stopPropagation()}>
+								<SearchInput
+									placeholder="Filter..."
+									autoFocus
+									preventNavigation
+									onChange={setSearchQuery}
+									className="h-10! gap-2! rounded-md! bg-neutral-800/50! pr-3! pl-0!"
+								/>
+							</div>
+						)}
+						{filteredItems.map((item, index) => {
+							return (
+								<button
+									key={`${item.label}-${index}`}
+									onClick={(e) => {
+										e.stopPropagation();
+										item.onClick?.();
+										if (!showCheckmarks || item.checked === undefined) {
+											closeMenu();
 										}
-										alt={item.checked ? "Checked" : "Unchecked"}
-										width={40}
-										height={40}
-										className="shrink-0 opacity-100 transition-opacity"
-									/>
-								)}
-							</button>
-						);
-					})}
-				</div>
-			)}
+									}}
+									className={`flex w-full items-center gap-2 ${
+										showCheckmarks && item.checked !== undefined ? "" : "pr-3"
+									} group cursor-pointer rounded-md text-left text-sm whitespace-nowrap transition-colors hover:bg-neutral-800`}
+								>
+									{item.icon && item.icon !== "undefined" && (
+										<Image
+											src={`/icons/Name=${item.icon}, Filled=${
+												item.checked ? "Yes" : "No"
+											}.svg`}
+											alt=""
+											width={40}
+											height={40}
+											className={`shrink-0 ${
+												item.checked && item.variant !== "danger"
+													? "brightness-0 invert"
+													: ""
+											}`}
+										/>
+									)}
+									<span
+										className={`flex-1 font-medium ${
+											item.variant === "danger"
+												? "text-red-500"
+												: "text-neutral-300 group-hover:text-white"
+										}`}
+									>
+										{item.label}
+									</span>
+									{showCheckmarks && item.checked !== undefined && (
+										<Image
+											src={
+												item.checked
+													? "/icons/Name=Check, Filled=Yes.svg"
+													: "/icons/Name=Check, Filled=No.svg"
+											}
+											alt={item.checked ? "Checked" : "Unchecked"}
+											width={40}
+											height={40}
+											className="shrink-0 opacity-100 transition-opacity"
+										/>
+									)}
+								</button>
+							);
+						})}
+					</div>,
+					document.body,
+				)}
 		</div>
 	);
 }

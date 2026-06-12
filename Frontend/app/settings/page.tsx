@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import useSWR, { useSWRConfig } from "swr";
 import { IconButton } from "@/components/ui/IconButton";
 import { SettingsToggle } from "@/components/ui/SettingsToggle";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { ActionMenu } from "@/components/ui/ActionMenu";
 import { FallbackImage } from "@/components/ui/FallbackImage";
+import { Dialog } from "@/components/ui/Dialog";
 import { usePlayer } from "@/context/PlayerContext";
+import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/context/ToastContext";
+import { useDialogState } from "@/hooks/useDialogState";
+import { getSettings, updateSettings, type UserSettings } from "@/lib/api";
 
 const QUALITY_OPTIONS = [
 	{ value: "auto", label: "Automatic" },
@@ -25,6 +31,15 @@ const DOWNLOAD_QUALITY_OPTIONS = [
 	{ value: "lossless", label: "Lossless (24-bit/48kHz)" },
 	{ value: "hi-res", label: "Hi-Res Lossless (24-bit/192kHz)" },
 ];
+
+const DEFAULT_SETTINGS: UserSettings = {
+	streamingQuality: "high",
+	downloadQuality: "high",
+	dataSaver: false,
+	gaplessPlayback: true,
+	automix: true,
+	allowExplicit: true,
+};
 
 interface SettingsSectionProps {
 	title: string;
@@ -65,11 +80,16 @@ function SettingsOption({ label, description, children }: SettingsOptionProps) {
 }
 
 export default function SettingsPage() {
-	// Account state
-	const [userName] = useState("Parth Mital");
-	const [userEmail] = useState("parth@example.com");
+	const { user } = useAuth();
+	const { toast } = useToast();
+	const { mutate } = useSWRConfig();
+	const {
+		isOpen: aboutOpen,
+		open: openAbout,
+		close: closeAbout,
+	} = useDialogState();
 
-	// Real playback engine settings (persisted in the player).
+	// Real playback engine settings (persisted in the player / localStorage).
 	const {
 		smoothTransitions,
 		setSmoothTransitions,
@@ -77,14 +97,40 @@ export default function SettingsPage() {
 		setNormalizeVolume,
 	} = usePlayer();
 
-	// Playback state
-	const [streamingQuality, setStreamingQuality] = useState("very-high");
-	const [downloadQuality, setDownloadQuality] = useState("very-high");
-	const [gapless, setGapless] = useState(true);
-	const [automix, setAutomix] = useState(true);
-	const [explicitContent, setExplicitContent] = useState(true);
+	// Backend-persisted per-user settings.
+	const { data, mutate: mutateSettings } = useSWR("user-settings", () =>
+		getSettings(),
+	);
+	const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
 
-	const [dataSaver, setDataSaver] = useState(false);
+	useEffect(() => {
+		if (data?.settings) setSettings(data.settings);
+	}, [data]);
+
+	const patch = async (partial: Partial<UserSettings>) => {
+		const next = { ...settings, ...partial };
+		setSettings(next); // optimistic
+		try {
+			const result = await updateSettings(partial);
+			mutateSettings(result, { revalidate: false });
+		} catch {
+			toast({ message: "Couldn't save that setting", variant: "error" });
+			mutateSettings();
+		}
+	};
+
+	const restoreDefaults = async () => {
+		await patch(DEFAULT_SETTINGS);
+		toast("Settings restored to defaults");
+	};
+
+	const clearCache = () => {
+		// Drop every SWR-cached response and revalidate lazily.
+		mutate(() => true, undefined, { revalidate: false });
+		toast("Cache cleared");
+	};
+
+	const displayName = user?.displayName ?? "You";
 
 	return (
 		<div className="flex w-full flex-col gap-6">
@@ -96,17 +142,12 @@ export default function SettingsPage() {
 						{
 							label: "Restore Defaults",
 							icon: "Reset",
-							onClick: () => console.log("Restore Defaults"),
-						},
-						{
-							label: "Help & Support",
-							icon: "Help",
-							onClick: () => console.log("Help"),
+							onClick: restoreDefaults,
 						},
 						{
 							label: "About",
 							icon: "Info",
-							onClick: () => console.log("About"),
+							onClick: () => openAbout(),
 						},
 					]}
 				/>
@@ -118,18 +159,15 @@ export default function SettingsPage() {
 					<FallbackImage
 						src={null}
 						fallbackType="Artist"
-						alt="User"
+						alt={displayName}
 						fill
 						sizes="80px"
 					/>
 				</div>
 				<div className="flex flex-1 flex-col gap-1">
-					<h2 className="text-2xl font-bold text-white">{userName}</h2>
-					<p className="text-neutral-400">{userEmail}</p>
+					<h2 className="text-2xl font-bold text-white">{displayName}</h2>
+					{user?.email && <p className="text-neutral-400">{user.email}</p>}
 				</div>
-				<button className="rounded-full border border-neutral-700 px-6 py-2 font-bold text-white transition-colors hover:bg-neutral-800">
-					Edit Profile
-				</button>
 			</div>
 
 			{/* Streaming Section */}
@@ -140,8 +178,8 @@ export default function SettingsPage() {
 				>
 					<Dropdown
 						options={QUALITY_OPTIONS}
-						value={streamingQuality}
-						onChange={setStreamingQuality}
+						value={settings.streamingQuality}
+						onChange={(v) => patch({ streamingQuality: v })}
 						align="right"
 					/>
 				</SettingsOption>
@@ -151,8 +189,8 @@ export default function SettingsPage() {
 				>
 					<Dropdown
 						options={DOWNLOAD_QUALITY_OPTIONS}
-						value={downloadQuality}
-						onChange={setDownloadQuality}
+						value={settings.downloadQuality}
+						onChange={(v) => patch({ downloadQuality: v })}
 						align="right"
 					/>
 				</SettingsOption>
@@ -169,7 +207,10 @@ export default function SettingsPage() {
 					label="Data Saver"
 					description="Sets your audio quality to low and disables canvases."
 				>
-					<SettingsToggle enabled={dataSaver} onChange={setDataSaver} />
+					<SettingsToggle
+						enabled={settings.dataSaver}
+						onChange={(v) => patch({ dataSaver: v })}
+					/>
 				</SettingsOption>
 			</SettingsSection>
 
@@ -188,21 +229,27 @@ export default function SettingsPage() {
 					label="Gapless Playback"
 					description="Seamlessly transitions between songs in an album."
 				>
-					<SettingsToggle enabled={gapless} onChange={setGapless} />
+					<SettingsToggle
+						enabled={settings.gaplessPlayback}
+						onChange={(v) => patch({ gaplessPlayback: v })}
+					/>
 				</SettingsOption>
 				<SettingsOption
 					label="Automix"
 					description="Allows smooth transitions between songs in a playlist."
 				>
-					<SettingsToggle enabled={automix} onChange={setAutomix} />
+					<SettingsToggle
+						enabled={settings.automix}
+						onChange={(v) => patch({ automix: v })}
+					/>
 				</SettingsOption>
 				<SettingsOption
 					label="Allow explicit content"
 					description="Turn off to skip explicit content. This setting is shared across all devices."
 				>
 					<SettingsToggle
-						enabled={explicitContent}
-						onChange={setExplicitContent}
+						enabled={settings.allowExplicit}
+						onChange={(v) => patch({ allowExplicit: v })}
 					/>
 				</SettingsOption>
 			</SettingsSection>
@@ -211,13 +258,25 @@ export default function SettingsPage() {
 			<SettingsSection title="Storage">
 				<SettingsOption
 					label="Clear Cache"
-					description="Empty the storage used for temporary music files. Currently: 1.2 GB"
+					description="Empty the in-app cache of temporary music and image data."
 				>
-					<button className="rounded-lg border border-neutral-700 px-4 py-2 font-medium text-white transition-colors hover:bg-neutral-800">
+					<button
+						onClick={clearCache}
+						className="rounded-lg border border-neutral-700 px-4 py-2 font-medium text-white transition-colors hover:bg-neutral-800"
+					>
 						Clear
 					</button>
 				</SettingsOption>
 			</SettingsSection>
+
+			<Dialog isOpen={aboutOpen} onClose={closeAbout} title="About Muse">
+				<div className="space-y-3 text-sm text-neutral-300">
+					<p>Muse — discover and stream music in hi-fi.</p>
+					<p className="text-neutral-500">
+						A personal, fully-free music player. No ads, no subscriptions.
+					</p>
+				</div>
+			</Dialog>
 		</div>
 	);
 }

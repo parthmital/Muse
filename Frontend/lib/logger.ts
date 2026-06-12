@@ -1,11 +1,17 @@
 type LogLevel = "debug" | "info" | "warn" | "error";
 
 function formatError(error: unknown) {
-	if (error instanceof Error) {
+	// Covers Error and Error-like objects (e.g. DOMException) whose name/message/
+	// stack are non-enumerable and would otherwise serialize to `{}`.
+	if (
+		error instanceof Error ||
+		(error !== null && typeof error === "object" && "message" in error)
+	) {
+		const e = error as Error;
 		return {
-			name: error.name,
-			message: error.message,
-			stack: error.stack,
+			name: e.name,
+			message: e.message,
+			stack: e.stack,
 		};
 	}
 	return error;

@@ -4,9 +4,9 @@ import { useMemo } from "react";
 import { IconButton } from "@/components/ui/IconButton";
 import { TrackInfo } from "@/components/TrackInfo";
 import { useSongActions } from "@/hooks/useContextMenu";
-import { usePlaylistManager } from "@/hooks/usePlaylistManager";
 import { usePlayer } from "@/context/PlayerContext";
 import { DynamicActionMenu } from "@/components/DynamicActionMenu";
+import { trackKey } from "@/lib/trackKey";
 
 export interface Song {
 	title: string;
@@ -46,8 +46,8 @@ export function SongRow({
 }) {
 	const { playTrack, currentTrack, isPlaying } = usePlayer();
 
-	// Use song title + artist as unique key
-	const songKey = `${song.title}-${song.artist}`;
+	// Stable identity (Tidal id when available) for like/library state.
+	const songKey = trackKey(song);
 
 	const isCurrentTrack =
 		currentTrack?.title === song.title && currentTrack?.artist === song.artist;
@@ -58,7 +58,6 @@ export function SongRow({
 		isInLibrary: checkInLibrary,
 		toggleLibrary,
 	} = useSongActions();
-	const { isSongInPlaylist, toggleSongInPlaylist } = usePlaylistManager();
 
 	// Derive state from props or hooks
 	const isLiked = useMemo(() => {

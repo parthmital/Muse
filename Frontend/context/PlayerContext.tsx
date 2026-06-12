@@ -10,7 +10,13 @@ import React, {
 	useMemo,
 } from "react";
 import { Song } from "@/components/SongRow";
-import { getStreamInfo, type StreamInfo } from "@/lib/api";
+import {
+	getStreamInfo,
+	reportInteraction,
+	type StreamInfo,
+	type InteractionEventType,
+} from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import type { MediaPlayerClass } from "dashjs";
 
 interface PlayerContextType {
@@ -31,8 +37,10 @@ interface PlayerContextType {
 	seek: (time: number) => void;
 	setVolume: (volume: number) => void;
 	addToQueue: (track: Song) => void;
+	addManyToQueue: (tracks: Song[]) => void;
 	playNext: (track: Song) => void;
 	playPlaylist: (tracks: Song[], startIdx?: number) => void;
+	playShuffled: (tracks: Song[]) => void;
 	playFromQueue: (index: number) => void;
 	removeFromQueue: (index: number) => void;
 	moveInQueue: (from: number, to: number) => void;
@@ -91,6 +99,60 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 	const audioCtxRef = useRef<AudioContext | null>(null);
 	const fadeGainRef = useRef<GainNode | null>(null);
 	const compressorRef = useRef<DynamicsCompressorNode | null>(null);
+
+	// ── Listening-event reporting ──────────────────────────────────────────────
+	// Feeds the backend personalization pipeline. Held in a ref so the playback
+	// callbacks don't need to be re-created when the user changes.
+	const { user } = useAuth();
+	const userIdRef = useRef<string | null>(null);
+	useEffect(() => {
+		userIdRef.current = user?.id ?? null;
+	}, [user]);
+
+	const reportEvent = useCallback(
+		(
+			eventType: InteractionEventType,
+			track: Song | null,
+			extra?: { playDurationSec?: number; trackDurationSec?: number },
+		) => {
+			const userId = userIdRef.current;
+			// Only report resolvable (numeric Tidal id) tracks for a real user.
+			if (!userId || !track?.tidalId) return;
+			reportInteraction(userId, {
+				eventType,
+				trackId: String(track.tidalId),
+				artistId:
+					track.tidalArtistId != null ? String(track.tidalArtistId) : undefined,
+				albumId:
+					track.tidalAlbumId != null ? String(track.tidalAlbumId) : undefined,
+				...extra,
+			}).catch(() => {
+				// Best-effort telemetry — never disrupt playback.
+			});
+		},
+		[],
+	);
+
+	/**
+	 * If a track is abandoned before ~90% played, log a "skip" for it. Called from
+	 * the manual skip handlers; a natural end leaves currentTime≈duration, so no
+	 * skip is logged in that case.
+	 */
+	const maybeReportSkip = useCallback(
+		(track: Song | null) => {
+			const audio = audioRef.current;
+			if (!audio || !track) return;
+			const dur = audio.duration;
+			const pos = audio.currentTime;
+			if (Number.isFinite(dur) && dur > 0 && pos < dur * 0.9) {
+				reportEvent("skip", track, {
+					playDurationSec: Math.floor(pos),
+					trackDurationSec: Math.floor(dur),
+				});
+			}
+		},
+		[reportEvent],
+	);
 
 	// Initialise toggles from localStorage on mount (client only).
 	useEffect(() => {
@@ -172,6 +234,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			setAudioQuality(null);
 			fadingOutRef.current = false;
 
+			// Log the play (drives top-tracks/top-artists + personalization).
+			reportEvent("play", track);
+
 			try {
 				ensureAudioGraph();
 				if (audioCtxRef.current?.state === "suspended") {
@@ -234,7 +299,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 				setIsPlaying(false);
 			}
 		},
-		[ensureAudioGraph, rampFadeIn, prefetchNext],
+		[ensureAudioGraph, rampFadeIn, prefetchNext, reportEvent],
 	);
 
 	const skipToNext = useCallback(() => {
@@ -242,6 +307,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		const idx = indexRef.current;
 
 		if (q.length === 0) return;
+
+		maybeReportSkip(q[idx]);
 
 		if (repeatRef.current === "one") {
 			playTrackInternal(q[idx]);
@@ -261,7 +328,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			setIsPlaying(false);
 			setProgress(0);
 		}
-	}, [playTrackInternal]);
+	}, [playTrackInternal, maybeReportSkip]);
 
 	const skipToPrev = useCallback(() => {
 		const q = queueRef.current;
@@ -275,6 +342,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			return;
 		}
 
+		maybeReportSkip(q[idx]);
+
 		if (idx > 0) {
 			const prevIdx = idx - 1;
 			indexRef.current = prevIdx;
@@ -286,7 +355,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			setCurrentIndex(lastIdx);
 			playTrackInternal(q[lastIdx]);
 		}
-	}, [playTrackInternal]);
+	}, [playTrackInternal, maybeReportSkip]);
 
 	const toggleShuffle = useCallback(() => {
 		setIsShuffled((prev) => {
@@ -423,9 +492,38 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 		[playTrackInternal],
 	);
 
+	const playShuffled = useCallback(
+		(tracks: Song[]) => {
+			if (tracks.length === 0) return;
+			// Fisher–Yates shuffle, then play from the top with shuffle mode on.
+			const shuffled = [...tracks];
+			for (let i = shuffled.length - 1; i > 0; i--) {
+				const j = Math.floor(Math.random() * (i + 1));
+				[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+			}
+			setIsShuffled(true);
+			shuffleRef.current = true;
+			setQueue(shuffled);
+			queueRef.current = shuffled;
+			setCurrentIndex(0);
+			indexRef.current = 0;
+			playTrackInternal(shuffled[0]);
+		},
+		[playTrackInternal],
+	);
+
 	const addToQueue = useCallback((track: Song) => {
 		setQueue((prev) => {
 			const next = [...prev, track];
+			queueRef.current = next;
+			return next;
+		});
+	}, []);
+
+	const addManyToQueue = useCallback((tracks: Song[]) => {
+		if (tracks.length === 0) return;
+		setQueue((prev) => {
+			const next = [...prev, ...tracks];
 			queueRef.current = next;
 			return next;
 		});
@@ -567,8 +665,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			seek,
 			setVolume,
 			addToQueue,
+			addManyToQueue,
 			playNext: playNextFn,
 			playPlaylist,
+			playShuffled,
 			playFromQueue,
 			removeFromQueue,
 			moveInQueue,
@@ -597,8 +697,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 			seek,
 			setVolume,
 			addToQueue,
+			addManyToQueue,
 			playNextFn,
 			playPlaylist,
+			playShuffled,
 			playFromQueue,
 			removeFromQueue,
 			moveInQueue,

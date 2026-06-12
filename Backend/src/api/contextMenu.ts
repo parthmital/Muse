@@ -17,7 +17,10 @@ export async function contextMenuRoutes(app: FastifyInstance) {
 		const user = await resolveUser(externalId);
 		if (!user) return reply.status(404).send({ error: "User not found" });
 
-		const itemType = type === "video" ? "track" : type;
+		// Track/video "Like" state lives in the "liked_track" bucket (shared with
+		// the heart button), so the menu's active state matches it.
+		const itemType =
+			type === "track" || type === "video" ? "liked_track" : type;
 		const inLibrary = await getLibraryEntry(user.id, itemType, id);
 
 		return {

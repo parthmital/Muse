@@ -68,7 +68,7 @@ export function Lyrics() {
 
 	if (lyrics.synced) {
 		return (
-			<div className="scrollbar-hide h-full overflow-y-auto py-8 text-2xl font-bold leading-relaxed">
+			<div className="h-full overflow-y-auto py-8 text-2xl font-bold leading-relaxed">
 				{lyrics.synced.map((line, i) => (
 					<button
 						key={`${line.time}-${i}`}
@@ -90,7 +90,7 @@ export function Lyrics() {
 	}
 
 	return (
-		<div className="scrollbar-hide h-full overflow-y-auto py-8 text-lg leading-relaxed whitespace-pre-wrap text-neutral-300">
+		<div className="h-full overflow-y-auto py-8 text-lg leading-relaxed whitespace-pre-wrap text-neutral-300">
 			{lyrics.plain}
 		</div>
 	);

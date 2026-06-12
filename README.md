@@ -210,8 +210,12 @@ Muse/
 ### Prerequisites
 
 - Node.js 20 or later
-- A Tidal API instance (local or remote) for music metadata and streaming
+- Python 3.11+ (for the bundled `hifi-api/` service that proxies Tidal metadata and streaming)
+- A Tidal account (the `hifi-api` service authenticates against it — see step 3 below)
 - Last.fm API key (required for recommendations; get one at https://www.last.fm/api/account/create)
+
+The `hifi-api/` directory is vendored directly into this repository (its files are
+committed, not a submodule), so a plain `git clone` gives you everything needed.
 
 ### Step-by-Step Setup
 
@@ -230,20 +234,40 @@ Muse/
 
    On Windows you can instead run `.\setup.ps1` from the repo root.
 
-3. **Configure Environment Variables**
+3. **Set up and authenticate the hifi-api service**
 
-   Create a `.env` file in the `Backend` directory:
+   The Python service in `hifi-api/` provides Tidal metadata and streaming. Create
+   a virtual environment, install its dependencies, and run the one-time Tidal
+   login so it can store a `token.json`:
+
+   ```bash
+   cd hifi-api
+   python -m venv .venv
+   .venv/Scripts/activate        # Windows; use `source .venv/bin/activate` on macOS/Linux
+   pip install -r requirements.txt
+   python tidal_auth.py          # follow the link-login prompt once
+   cd ..
+   ```
+
+   On Windows, `.\setup.ps1` automates the venv + auth step.
+
+4. **Configure Environment Variables**
+
+   Copy `Backend/.env.example` to `Backend/.env` and fill in the values marked
+   REQUIRED (at minimum `LASTFM_API_KEY`, and a real `JWT_SECRET` for any shared
+   deployment). The defaults assume the hifi-api service on its standard port:
 
    ```env
    NODE_ENV=development
    PORT=5000
    API_BASE_URL=http://localhost:5000
    SQLITE_PATH=./data/music_rec.db
-   TIDAL_API_BASE_URL=http://localhost:4000
+   TIDAL_API_BASE_URL=http://localhost:8000
    LASTFM_API_KEY=your_lastfm_key
+   JWT_SECRET=change-me-to-a-long-random-string
    ```
 
-4. **Build the Frontend** (production only)
+5. **Build the Frontend** (production only)
 
    ```bash
    npm --prefix Frontend run build
@@ -312,7 +336,7 @@ together via `concurrently`; you can also run each manually.
 
 Recommended workflow:
 
-1. Start the API server (it runs migrations and validates connections)
+1. Start the API server (its `predev` hook runs `prisma db push` to sync the schema)
 2. Start the worker (it begins polling for jobs)
 3. Start the frontend (it proxies API requests)
 
@@ -331,7 +355,7 @@ Run from the `Backend` directory unless noted:
 
 - **API Routes**: Each domain has its own route file in `src/api/`. Routes handle HTTP concerns only and delegate to services.
 - **Services**: Business logic lives in `src/services/`. Services are pure functions or classes with no HTTP knowledge.
-- **Database**: Raw SQL via better-sqlite3. No ORM. Migrations run automatically on startup.
+- **Database**: SQLite accessed through Prisma (with the better-sqlite3 adapter). The schema lives in `Backend/prisma/schema.prisma`; `prisma db push` syncs it (run automatically by the `predev`/`preworker` scripts locally and by the Docker entrypoint).
 - **Workers**: Jobs are idempotent and can be retried. Each job type has a handler in `src/workers/jobs/`.
 
 ---
@@ -340,24 +364,29 @@ Run from the `Backend` directory unless noted:
 
 ### Environment Variables
 
-| Variable               | Default                 | Description                          |
-| ---------------------- | ----------------------- | ------------------------------------ |
-| `NODE_ENV`             | `development`           | Runtime environment                  |
-| `PORT`                 | `5000`                  | API server port                      |
-| `API_BASE_URL`         | `http://localhost:5000` | Public API URL                       |
-| `SQLITE_PATH`          | `./data/music_rec.db`   | Database file location               |
-| `TIDAL_API_BASE_URL`   | `http://localhost:4000` | Tidal API endpoint                   |
-| `LASTFM_API_KEY`       | _(none)_                | Last.fm API key (recommendations)    |
-| `MUSICBRAINZ_APP`      | `MusicRecEngine/1.0`    | MusicBrainz User-Agent app string    |
-| `LOG_LEVEL`            | `info`                  | Pino log level                       |
-| `QUEUE_SIZE`           | `25`                    | Default queue length                 |
-| `HOME_REC_COUNT`       | `20`                    | Recommendations per shelf            |
-| `MIX_TRACK_COUNT`      | `30`                    | Tracks per generated mix             |
-| `RECENCY_DECAY_DAYS`   | `30`                    | History decay period                 |
-| `CACHE_PROFILE_TTL_MS` | `300000`                | Profile cache TTL (5 minutes)        |
-| `CACHE_REC_TTL_MS`     | `120000`                | Recommendation cache TTL (2 minutes) |
-| `WORKER_POLL_MS`       | `500`                   | Job polling interval                 |
-| `WORKER_CONCURRENCY`   | `4`                     | Parallel job limit                   |
+| Variable               | Default                 | Description                                  |
+| ---------------------- | ----------------------- | -------------------------------------------- |
+| `NODE_ENV`             | `development`           | Runtime environment                          |
+| `PORT`                 | `5000`                  | API server port                              |
+| `API_BASE_URL`         | `http://localhost:5000` | Public API URL                               |
+| `SQLITE_PATH`          | `./data/music_rec.db`   | Database file location                       |
+| `TIDAL_API_BASE_URL`   | `http://localhost:8000` | hifi-api service base URL                    |
+| `LASTFM_API_KEY`       | _(none)_                | Last.fm API key (recommendations)            |
+| `MUSICBRAINZ_APP`      | `MusicRecEngine/1.0`    | MusicBrainz User-Agent app string            |
+| `LOG_LEVEL`            | `info`                  | Pino log level                               |
+| `DEV_USER_ID`          | `dev-user-001`          | Dev-only fallback identity (no token)        |
+| `JWT_SECRET`           | _(insecure default)_    | HMAC secret for session tokens — set in prod |
+| `JWT_TTL_SEC`          | `2592000`               | Session token lifetime (30 days)             |
+| `JOB_MAX_ATTEMPTS`     | `3`                     | Max retries per background job               |
+| `JOB_RETRY_BASE_SEC`   | `60`                    | Base backoff between job retries             |
+| `QUEUE_SIZE`           | `25`                    | Default queue length                         |
+| `HOME_REC_COUNT`       | `20`                    | Recommendations per shelf                    |
+| `MIX_TRACK_COUNT`      | `30`                    | Tracks per generated mix                     |
+| `RECENCY_DECAY_DAYS`   | `30`                    | History decay period                         |
+| `CACHE_PROFILE_TTL_MS` | `300000`                | Profile cache TTL (5 minutes)                |
+| `CACHE_REC_TTL_MS`     | `120000`                | Recommendation cache TTL (2 minutes)         |
+| `WORKER_POLL_MS`       | `500`                   | Job polling interval                         |
+| `WORKER_CONCURRENCY`   | `4`                     | Parallel job limit                           |
 
 ---
 
@@ -425,7 +454,9 @@ The API follows REST conventions with these main resource groups:
 
 ## Testing
 
-The project does not currently include an automated test suite. Testing is performed manually through:
+The backend has a Vitest suite (`npm test` in `Backend/`) covering auth, db
+helpers, metrics, artist filters, and the popularity service. Beyond that,
+testing is performed manually through:
 
 1. **API Exploration**: Use the Swagger UI at `/docs` when running the API locally
 2. **Homepage Debug Endpoint**: `GET /users/:userId/homepage/debug` returns diagnostic information about shelf generation
@@ -449,14 +480,22 @@ To verify recommendations are working:
 3. **Database**: The SQLite file should be on persistent storage
 4. **Process Management**: Use a process manager like PM2, systemd, or Docker to manage the API and worker processes
 
-### Docker Deployment (Example)
+### Docker Deployment
 
-While Docker configurations are not included in the repository, a production deployment would typically:
+The repository ships a full Docker setup: a root `docker-compose.yml` plus
+Dockerfiles for `Backend/`, `Frontend/`, and `hifi-api/`. To bring up the whole
+stack (hifi-api + backend API + worker + frontend):
 
-- Containerise the API server with the SQLite volume mounted
-- Run the worker process (same image, `npm run worker`) alongside the API
-- Containerise the frontend as a static file server or integrate with the API container
-- Use a reverse proxy (nginx, traefik) for SSL termination and routing
+```bash
+cp Backend/.env.example Backend/.env   # fill in LASTFM_API_KEY, JWT_SECRET, etc.
+docker compose up --build
+```
+
+The backend image's entrypoint (`Backend/docker-entrypoint.sh`) runs
+`prisma db push` on start, so the schema is created automatically on a fresh
+volume. The API and worker share a named SQLite volume. For a production
+deployment, front the stack with a reverse proxy (nginx, traefik) for SSL
+termination and routing.
 
 ---
 

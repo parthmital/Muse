@@ -39,10 +39,17 @@ export function registerAuth(app: FastifyInstance): void {
 			}
 		}
 
-		// 2) Legacy x-user-id header → dev user. Keeps existing clients working.
-		const header = req.headers["x-user-id"];
-		const value = Array.isArray(header) ? header[0] : header;
-		req.authUserId = value?.trim() || config.devUserId;
+		// 2) Development only: fall back to the x-user-id header (then the dev
+		// user) so local tooling and unauthenticated requests keep working. In
+		// production there is no fallback — a request without a valid token has
+		// an empty identity, so ownership-guarded routes reject it.
+		if (config.nodeEnv !== "production") {
+			const header = req.headers["x-user-id"];
+			const value = Array.isArray(header) ? header[0] : header;
+			req.authUserId = value?.trim() || config.devUserId;
+		} else {
+			req.authUserId = "";
+		}
 	});
 }
 

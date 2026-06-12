@@ -7,9 +7,12 @@ import {
 	executeAction as apiExecuteAction,
 	addToLibrary,
 	removeFromLibrary,
+	reportInteraction,
 	API_BASE,
 	swrFetcher,
 } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { isResolvableTrackKey } from "@/lib/trackKey";
 
 export interface ContextMenuItem {
 	label: string;
@@ -162,6 +165,7 @@ export function useContextMenu() {
  * Manages liked songs and library songs via SWR.
  */
 export function useSongActions() {
+	const { user } = useAuth();
 	const { data: libraryData, mutate: mutateLibrary } = useSWR<{
 		library: { itemType: string; itemId: string; isPinned: boolean }[];
 	}>(`${API_BASE}/library`, swrFetcher);
@@ -221,6 +225,16 @@ export function useSongActions() {
 				populateCache: false,
 			},
 		);
+
+		// Report likes/unlikes as high-signal interactions (feeds personalization).
+		if (itemType === "liked_track" && user && isResolvableTrackKey(itemId)) {
+			reportInteraction(user.id, {
+				eventType: currentState ? "unlike" : "like",
+				trackId: itemId,
+			}).catch(() => {
+				// Best-effort.
+			});
+		}
 	};
 
 	const toggleLike = useCallback(

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { usePlayer } from "@/context/PlayerContext";
 import { useSongActions } from "@/hooks/useContextMenu";
 import { useToast } from "@/context/ToastContext";
+import { trackKey } from "@/lib/trackKey";
 
 /**
  * Global keyboard shortcuts, matching the conventions of Spotify / Apple Music.
@@ -161,7 +162,7 @@ export function GlobalHotkeys() {
 					return;
 				case "l": {
 					if (!s.currentTrack) return;
-					const key = `${s.currentTrack.title}-${s.currentTrack.artist}`;
+					const key = trackKey(s.currentTrack);
 					const wasLiked = s.isLiked(key, s.currentTrack.liked);
 					s.toggleLike(key);
 					s.toast({

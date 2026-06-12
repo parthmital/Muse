@@ -6,9 +6,9 @@ import { Song, SongRow } from "@/components/SongRow";
 import { SongListHeader } from "@/components/SongListHeader";
 import { IconButton } from "@/components/ui/IconButton";
 import { SearchInput } from "@/components/ui/SearchInput";
-import { ActionMenu, ActionMenuItem } from "@/components/ui/ActionMenu";
 
 import { useSongActions } from "@/hooks/useContextMenu";
+import { useMediaActions } from "@/hooks/useMediaActions";
 import { useSorting } from "@/hooks/useSorting";
 import { usePlayer } from "@/context/PlayerContext";
 import { formatTotalDuration } from "@/utils/duration";
@@ -16,6 +16,7 @@ import { DynamicActionMenu } from "@/components/DynamicActionMenu";
 
 import { getAlbum, TidalAlbum, TidalTrack } from "@/lib/api";
 import { tidalTrackToSong } from "@/lib/tidalAdapter";
+import { trackKey } from "@/lib/trackKey";
 
 interface AlbumData {
 	album: TidalAlbum;
@@ -37,7 +38,14 @@ export default function AlbumPage({
 	const { id } = use(params);
 	const title = decodeURIComponent(id);
 
-	const { playTrack, playPlaylist, currentTrack, isPlaying } = usePlayer();
+	const {
+		playPlaylist,
+		playShuffled,
+		addManyToQueue,
+		currentTrack,
+		isPlaying,
+	} = usePlayer();
+	const { share, download } = useMediaActions();
 
 	const [albumData, setAlbumData] = useState<AlbumData | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
@@ -134,10 +142,26 @@ export default function AlbumPage({
 						filled
 						onClick={handlePlayAll}
 					/>
-					<IconButton icon="Shuffle" alt="Shuffle" />
-					<IconButton icon="Add to Queue" alt="Add to Queue" />
-					<IconButton icon="Download" alt="Download" />
-					<IconButton icon="Share" alt="Share" />
+					<IconButton
+						icon="Shuffle"
+						alt="Shuffle"
+						onClick={() => playShuffled(sortedSongs)}
+					/>
+					<IconButton
+						icon="Add to Queue"
+						alt="Add to Queue"
+						onClick={() => addManyToQueue(sortedSongs)}
+					/>
+					<IconButton
+						icon="Download"
+						alt="Download"
+						onClick={() => download()}
+					/>
+					<IconButton
+						icon="Share"
+						alt="Share"
+						onClick={() => share(albumData?.album?.title || title)}
+					/>
 					<DynamicActionMenu
 						type="album"
 						id={id}
@@ -181,7 +205,7 @@ export default function AlbumPage({
 						</div>
 					) : sortedSongs.length > 0 ? (
 						sortedSongs.map((song, index) => {
-							const songKey = `${song.title}-${song.artist}`;
+							const songKey = trackKey(song);
 							return (
 								<SongRow
 									key={`${song.title}-${index}`}

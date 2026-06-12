@@ -85,7 +85,7 @@ function DiscoverContent() {
 		// A non-"All" filter whose tag isn't loaded yet: wait for genres to arrive.
 		if (activeFilter !== ALL_FILTER && tag === undefined) return;
 
-		genreAlbums(tag ?? null, 16)
+		genreAlbums(tag ?? null, 50)
 			.then((res) => {
 				if (!cancelled) setTidalItems(res.items.map(tidalAlbumToMediaItem));
 			})

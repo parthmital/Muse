@@ -1,85 +1,34 @@
 "use client";
 
 import { useCallback } from "react";
+import { useToast } from "@/context/ToastContext";
+import { shareItem } from "@/lib/share";
 
-export interface MediaActionItem {
-	label: string;
-	icon: string;
-	onClick: () => void;
-	variant?: "default" | "danger";
-}
-
+/**
+ * Shared handlers for the secondary media actions (share, download) used across
+ * album/playlist/track surfaces. Keeps the toast wiring in one place.
+ */
 export function useMediaActions() {
-	const handlePlay = useCallback((itemContext: string) => {
-		console.log("Playing", itemContext);
-	}, []);
+	const { toast } = useToast();
 
-	const handleAddToQueue = useCallback((itemContext: string) => {
-		console.log("Adding to queue", itemContext);
-	}, []);
-
-	const handleShare = useCallback((itemContext: string) => {
-		console.log("Sharing", itemContext);
-		if (navigator.share) {
-			navigator
-				.share({
-					title: "Check this out on Muse",
-					url: window.location.href,
-				})
-				.catch(console.error);
-		}
-	}, []);
-
-	const handleDownload = useCallback((itemContext: string) => {
-		console.log("Downloading", itemContext);
-	}, []);
-
-	const generateStandardActions = useCallback(
-		(
-			itemContext: string,
-			isPinned?: boolean,
-			togglePin?: () => void,
-			isArtist?: boolean,
-		): MediaActionItem[] => {
-			const actions: MediaActionItem[] = [];
-
-			if (togglePin) {
-				actions.push({
-					label: isPinned ? "Unpin" : "Pin",
-					icon: "Pin",
-					onClick: togglePin,
-				});
+	const share = useCallback(
+		async (title: string, url?: string) => {
+			const result = await shareItem({ title, url });
+			if (result === "copied") {
+				toast("Link copied to clipboard");
+			} else if (result === "failed") {
+				toast({ message: "Couldn't share this", variant: "error" });
 			}
-
-			if (!isArtist) {
-				actions.push({
-					label: "Add to Queue",
-					icon: "Add to Queue",
-					onClick: () => handleAddToQueue(itemContext),
-				});
-				actions.push({
-					label: "Download",
-					icon: "Download",
-					onClick: () => handleDownload(itemContext),
-				});
-			}
-
-			actions.push({
-				label: "Share",
-				icon: "Share",
-				onClick: () => handleShare(itemContext),
-			});
-
-			return actions;
+			// "shared" / "cancelled" need no toast.
 		},
-		[handleAddToQueue, handleDownload, handleShare],
+		[toast],
 	);
 
-	return {
-		handlePlay,
-		handleAddToQueue,
-		handleShare,
-		handleDownload,
-		generateStandardActions,
-	};
+	// Offline downloads aren't built yet; give clear feedback instead of a
+	// silent no-op so the control isn't dead.
+	const download = useCallback(() => {
+		toast("Downloads are coming soon");
+	}, [toast]);
+
+	return { share, download };
 }

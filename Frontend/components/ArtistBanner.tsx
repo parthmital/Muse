@@ -28,7 +28,7 @@ export function ArtistBanner({
 	const { currentTrack, isPlaying } = usePlayer();
 	const { libraryArtists, toggleArtistInLibrary } = useLibraryManager();
 
-	const isFollowing = libraryArtists[title] ?? false;
+	const isInLibrary = libraryArtists[title] ?? false;
 
 	const isThisArtistPlaying = useMemo(
 		() =>
@@ -41,7 +41,7 @@ export function ArtistBanner({
 		[isPlaying, currentTrack, artistSongs],
 	);
 
-	const toggleFollow = () => {
+	const toggleLibrary = () => {
 		toggleArtistInLibrary(title);
 	};
 
@@ -79,10 +79,10 @@ export function ArtistBanner({
 						onClick={onPlay}
 					/>
 					<IconButton
-						icon={isFollowing ? "Check" : "Add"}
-						alt={isFollowing ? "Unfollow" : "Follow"}
-						filled={isFollowing}
-						onClick={toggleFollow}
+						icon={isInLibrary ? "Check" : "Add"}
+						alt={isInLibrary ? "Remove from library" : "Save to library"}
+						filled={isInLibrary}
+						onClick={toggleLibrary}
 					/>
 					<DynamicActionMenu
 						type="artist"

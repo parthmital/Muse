@@ -1,15 +1,10 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { PageContainer } from "@/components/ui/PageContainer";
-import { TopBar } from "@/components/TopBar";
-import { Sidebar } from "@/components/Sidebar";
-import { Player } from "@/components/Player";
-import { MobileNav } from "@/components/MobileNav";
-import { GlobalHotkeys } from "@/components/GlobalHotkeys";
-import { RouteTransition } from "@/components/RouteTransition";
+import { AuthGate } from "@/components/AuthGate";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 
+import { AuthProvider } from "@/context/AuthContext";
 import { PlayerProvider } from "@/context/PlayerContext";
 import { ActionMenuProvider } from "@/context/ActionMenuContext";
 import { ToastProvider } from "@/context/ToastContext";
@@ -60,32 +55,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 				>
 					Skip to content
 				</a>
-				<PlayerProvider>
-					<ToastProvider>
-						<ActionMenuProvider>
-							<GlobalHotkeys />
-							<div className="flex h-dvh flex-col gap-4 overflow-hidden p-2 pb-28 sm:p-4 sm:pb-28 md:pb-4">
-								<TopBar />
-								<div className="flex grow gap-4 overflow-hidden">
-									<Sidebar />
-									<div className="flex grow flex-col gap-2 overflow-hidden sm:gap-4">
-										<main
-											id="main-content"
-											className="flex min-h-0 grow flex-col overflow-hidden"
-										>
-											<PageContainer>
-												<RouteTransition>{children}</RouteTransition>
-											</PageContainer>
-										</main>
-										<Player />
-									</div>
-								</div>
-							</div>
-							<MobileNav />
-							<ServiceWorkerRegistrar />
-						</ActionMenuProvider>
-					</ToastProvider>
-				</PlayerProvider>
+				<AuthProvider>
+					<PlayerProvider>
+						<ToastProvider>
+							<ActionMenuProvider>
+								<AuthGate>{children}</AuthGate>
+								<ServiceWorkerRegistrar />
+							</ActionMenuProvider>
+						</ToastProvider>
+					</PlayerProvider>
+				</AuthProvider>
 			</body>
 		</html>
 	);

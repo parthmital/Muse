@@ -24,7 +24,15 @@ export async function actionRoutes(app: FastifyInstance) {
 		if (!user) return reply.status(404).send({ error: "User not found" });
 
 		switch (action) {
-			case "toggle_like":
+			case "toggle_like": {
+				// Track/video likes share the "liked_track" bucket with the heart
+				// button (useSongActions) so both controls — and the Liked page —
+				// stay in sync. Other types (artist/mix) keep their own bucket.
+				const itemType =
+					type === "track" || type === "video" ? "liked_track" : type;
+				const active = await toggleLibraryItem(user.id, itemType, id);
+				return { success: true, active };
+			}
 			case "toggle_library": {
 				const active = await toggleLibraryItem(user.id, type, id);
 				return { success: true, active };

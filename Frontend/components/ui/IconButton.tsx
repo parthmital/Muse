@@ -7,7 +7,6 @@ import Link from "next/link";
 const ICONS_WITH_FILLED_VERSIONS = new Set([
 	"Check",
 	"Discover",
-	"Friends",
 	"Home",
 	"Library",
 	"Like",
