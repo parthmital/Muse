@@ -168,7 +168,7 @@ function SearchContentInner() {
 									titleClassName="text-xl font-bold"
 									controls={false}
 								/>
-								<div className="w-96">
+								<div className="w-full max-w-sm">
 									<MediaCard item={topResultItem} />
 								</div>
 							</div>

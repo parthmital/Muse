@@ -12,7 +12,7 @@ export const ScrollContainer = forwardRef<HTMLDivElement, ScrollContainerProps>(
 		return (
 			<div
 				ref={ref}
-				className={`scrollbar-hide flex gap-6 overflow-x-auto ${className}`}
+				className={`scrollbar-hide flex gap-4 overflow-x-auto md:gap-6 ${className}`}
 			>
 				{children}
 			</div>

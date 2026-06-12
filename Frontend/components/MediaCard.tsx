@@ -73,7 +73,7 @@ export function MediaCard({
 			id={routeId}
 			openOnClick={false}
 			trigger={
-				<div className="group relative w-44 shrink-0">
+				<div className="group relative w-36 shrink-0 sm:w-44">
 					{/* Main card content - wrapped in Link for navigation */}
 					<Link href={href} className="block">
 						<div

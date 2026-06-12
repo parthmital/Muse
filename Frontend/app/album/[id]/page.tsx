@@ -116,11 +116,11 @@ export default function AlbumPage({
 		<div className="flex flex-col gap-6 lg:flex-row">
 			{/* Left Column: Album Content */}
 			<div className="flex min-w-0 flex-1 flex-col gap-6">
-				<div className="flex flex-col gap-6">
-					<h1 className="text-4xl font-bold text-white">
+				<div className="flex flex-col gap-3 md:gap-6">
+					<h1 className="text-2xl font-bold text-white md:text-4xl">
 						{albumData?.album?.title || title}
 					</h1>
-					<div className="flex items-center gap-2">
+					<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm md:text-base">
 						<span className="font-medium text-white">
 							{albumData?.album?.artist?.name || "Artist"}
 						</span>
@@ -151,16 +151,19 @@ export default function AlbumPage({
 						icon="Add to Queue"
 						alt="Add to Queue"
 						onClick={() => addManyToQueue(sortedSongs)}
+						className="hidden md:flex"
 					/>
 					<IconButton
 						icon="Download"
 						alt="Download"
 						onClick={() => download()}
+						className="hidden md:flex"
 					/>
 					<IconButton
 						icon="Share"
 						alt="Share"
 						onClick={() => share(albumData?.album?.title || title)}
+						className="hidden md:flex"
 					/>
 					<DynamicActionMenu
 						type="album"
@@ -229,7 +232,7 @@ export default function AlbumPage({
 
 			{/* Right Column: Sidebar (stacks on top on mobile) */}
 			<div className="order-first flex w-full shrink-0 flex-col gap-6 lg:order-none lg:w-80">
-				<div className="relative mx-auto aspect-square w-full max-w-xs lg:mx-0 lg:max-w-none">
+				<div className="relative aspect-square w-full lg:mx-0 lg:max-w-none">
 					<FallbackImage
 						src={albumData?.album?.cover || ""}
 						alt={title}

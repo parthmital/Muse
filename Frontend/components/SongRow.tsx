@@ -102,14 +102,16 @@ export function SongRow({
 				<div
 					// content-visibility skips render/layout work for off-screen rows —
 					// cheap windowing for long track lists without a virtualization dep.
-					className={`group/row grid cursor-pointer items-center gap-6 rounded-lg px-4 py-2 transition-colors [content-visibility:auto] [contain-intrinsic-size:0_56px] ${
+					// Mobile: a compact flex row (cover + title/artist + trailing ⋮).
+					// md+: the original multi-column grid table.
+					className={`group/row flex cursor-pointer items-center gap-3 rounded-lg py-2 transition-colors [content-visibility:auto] [contain-intrinsic-size:0_56px] md:grid md:gap-6 md:px-4 ${
 						isCurrentTrack && isPlaying
 							? "bg-neutral-900"
 							: "hover:bg-neutral-900"
 					} ${gridClass}`}
 					onClick={() => playTrack(song)}
 				>
-					<div className="relative flex h-10 w-10 items-center justify-center">
+					<div className="relative hidden h-10 w-10 shrink-0 items-center justify-center md:flex">
 						<div
 							className={`absolute inset-0 flex items-center justify-center transition-opacity ${
 								isCurrentTrack && isPlaying
@@ -148,7 +150,7 @@ export function SongRow({
 						</span>
 					</div>
 
-					<div className="min-w-0">
+					<div className="min-w-0 flex-1">
 						<TrackInfo
 							image={song.img}
 							title={song.title}
@@ -157,12 +159,12 @@ export function SongRow({
 					</div>
 
 					{!hideAlbum && (
-						<div className="line-clamp-1 min-w-0">{song.album}</div>
+						<div className="hidden min-w-0 md:line-clamp-1">{song.album}</div>
 					)}
 
-					<div>{song.duration}</div>
+					<div className="hidden md:block">{song.duration}</div>
 
-					<div className="flex justify-center">
+					<div className="hidden justify-center md:flex">
 						<IconButton
 							icon="Like"
 							alt="Like"
@@ -173,12 +175,22 @@ export function SongRow({
 						/>
 					</div>
 
-					<div className="flex items-center gap-6">
+					<div className="flex shrink-0 items-center gap-3 md:gap-6">
+						{/* Like — mobile only (desktop has its own column above). */}
+						<IconButton
+							icon="Like"
+							alt="Like"
+							ariaLabel={isLiked ? "Unlike" : "Like"}
+							ariaPressed={isLiked}
+							filled={isLiked}
+							onClick={handleToggleLike}
+							className="md:hidden"
+						/>
 						<div
 							className={`flex items-center gap-6 transition-opacity ${
 								isCurrentTrack && isPlaying
 									? "pointer-events-auto opacity-100"
-									: "pointer-events-none opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100"
+									: "pointer-events-auto opacity-100 md:pointer-events-none md:opacity-0 md:group-hover/row:pointer-events-auto md:group-hover/row:opacity-100"
 							}`}
 						>
 							<DynamicActionMenu
@@ -197,11 +209,11 @@ export function SongRow({
 							ariaPressed={inLibrary}
 							filled={inLibrary}
 							onClick={handleToggleLibrary}
-							className={
+							className={`hidden md:block ${
 								inLibrary || (isCurrentTrack && isPlaying)
 									? "opacity-100"
 									: "opacity-0 group-hover/row:opacity-100"
-							}
+							}`}
 						/>
 					</div>
 				</div>

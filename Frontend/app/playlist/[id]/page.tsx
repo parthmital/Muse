@@ -148,11 +148,11 @@ export default function PlaylistPage({
 			<div className="flex flex-col gap-6 lg:flex-row">
 				{/* Left Column: Playlist Content */}
 				<div className="flex min-w-0 flex-1 flex-col gap-6">
-					<div className="flex flex-col gap-6">
-						<h1 className="text-4xl font-bold text-white">
+					<div className="flex flex-col gap-3 md:gap-6">
+						<h1 className="text-2xl font-bold text-white md:text-4xl">
 							{playlistData?.playlist?.title || title}
 						</h1>
-						<div className="flex items-center gap-2">
+						<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm md:text-base">
 							<span>
 								By{" "}
 								<span className="font-medium text-white">
@@ -188,6 +188,7 @@ export default function PlaylistPage({
 							icon="Add to Queue"
 							alt="Add to Queue"
 							onClick={() => addManyToQueue(sortedSongs)}
+							className="hidden md:flex"
 						/>
 						<DynamicActionMenu
 							type="playlist"
@@ -253,7 +254,7 @@ export default function PlaylistPage({
 
 				{/* Right Column: Sidebar (stacks on top on mobile) */}
 				<div className="order-first flex w-full shrink-0 flex-col gap-6 lg:order-none lg:w-80">
-					<div className="relative mx-auto aspect-square w-full max-w-xs lg:mx-0 lg:max-w-none">
+					<div className="relative aspect-square w-full lg:mx-0 lg:max-w-none">
 						<FallbackImage
 							src={playlistData?.playlist?.image || ""}
 							alt={title}

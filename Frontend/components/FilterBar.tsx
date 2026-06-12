@@ -121,7 +121,9 @@ export function FilterBar({
 							/>
 						)}
 					</div>
-					<IconButton icon="Add" alt="Create Playlist" onClick={onAdd} />
+					{onAdd && (
+						<IconButton icon="Add" alt="Create Playlist" onClick={onAdd} />
+					)}
 				</>
 			) : (
 				<>

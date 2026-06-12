@@ -87,7 +87,7 @@ export function SongListHeader({
 
 	return (
 		<div
-			className={`grid items-center gap-6 border-b border-neutral-800 px-4 pb-2 ${gridClass}`}
+			className={`hidden items-center gap-6 border-b border-neutral-800 px-4 pb-2 md:grid ${gridClass}`}
 		>
 			<div className="text-center text-xs font-bold tracking-widest text-neutral-500 uppercase">
 				#

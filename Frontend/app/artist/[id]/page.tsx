@@ -191,7 +191,7 @@ export default function ArtistPage({
 			/>
 
 			{/* Main Content Layout */}
-			<div className="flex flex-col gap-6 p-6 lg:flex-row">
+			<div className="flex flex-col gap-6 py-6 md:p-6 lg:flex-row">
 				{/* Left Column: Music Content */}
 				<div className="flex min-w-0 flex-1 flex-col gap-6">
 					{activeTab === "Home" && (

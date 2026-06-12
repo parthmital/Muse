@@ -25,11 +25,13 @@ export function TrackInfo({
 					fallbackType="Notes"
 				/>
 			</div>
-			<div className="flex flex-col gap-1">
+			<div className="flex min-w-0 flex-1 flex-col gap-0.5 md:gap-1">
 				<p className="line-clamp-1 cursor-pointer text-base text-white hover:underline">
 					{title}
 				</p>
-				<p className="line-clamp-1 cursor-pointer hover:underline">{artist}</p>
+				<p className="line-clamp-1 cursor-pointer text-sm hover:underline">
+					{artist}
+				</p>
 			</div>
 		</div>
 	);

@@ -22,7 +22,7 @@ export function MediaGrid({
 	}
 
 	return (
-		<div className={`flex flex-wrap gap-6 ${className}`}>
+		<div className={`flex flex-wrap gap-x-4 gap-y-6 md:gap-6 ${className}`}>
 			{items.map((item) => (
 				<MediaCard
 					key={`${item.type ?? "media"}-${String(item.tidalId ?? item.title)}`}

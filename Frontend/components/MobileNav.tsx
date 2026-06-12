@@ -23,7 +23,9 @@ export function MobileNav() {
 		<nav
 			aria-label="Primary"
 			className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-neutral-800 bg-black pt-2 md:hidden"
-			style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+			style={{
+				paddingBottom: "calc(env(safe-area-inset-bottom) + 0.5rem)",
+			}}
 		>
 			{ITEMS.map((item) => {
 				const active =

@@ -65,16 +65,18 @@ interface SettingsOptionProps {
 
 function SettingsOption({ label, description, children }: SettingsOptionProps) {
 	return (
-		<div className="group flex items-center justify-between py-2">
+		<div className="group flex items-start justify-between gap-3 py-2 md:items-center md:gap-0">
 			<div className="flex min-w-0 flex-col gap-1">
 				<span className="text-base font-medium text-white transition-colors group-hover:text-white">
 					{label}
 				</span>
 				{description && (
-					<p className="line-clamp-2 text-sm text-neutral-400">{description}</p>
+					<p className="text-sm text-neutral-400 md:line-clamp-2">
+						{description}
+					</p>
 				)}
 			</div>
-			<div className="ml-6 shrink-0">{children}</div>
+			<div className="shrink-0 md:ml-6">{children}</div>
 		</div>
 	);
 }

@@ -152,16 +152,20 @@ function LibraryContentInner() {
 					/>
 				</div>
 
-				<div className="flex items-center text-white">
-					<div className="ml-auto">
-						<IconButton
-							icon={viewMode === "grid" ? "Grid" : "List"}
-							alt="Toggle view"
-							ariaLabel="Toggle view"
-							onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
-						/>
+				{filter && (
+					<div className="flex items-center text-white">
+						<div className="ml-auto">
+							<IconButton
+								icon={viewMode === "grid" ? "Grid" : "List"}
+								alt="Toggle view"
+								ariaLabel="Toggle view"
+								onClick={() =>
+									setViewMode(viewMode === "grid" ? "list" : "grid")
+								}
+							/>
+						</div>
 					</div>
-				</div>
+				)}
 
 				{!filter && (
 					<div className="flex flex-col">
@@ -169,9 +173,9 @@ function LibraryContentInner() {
 							<Link
 								key={cat.label}
 								href={cat.href}
-								className="flex items-center justify-between border-b border-neutral-800 py-5 last:border-b-0"
+								className="flex items-center justify-between border-b border-neutral-800 py-4 last:border-b-0"
 							>
-								<span className="text-2xl font-bold text-white">
+								<span className="text-xl font-bold text-white">
 									{cat.label}
 								</span>
 								<IconButton icon="Right" alt="" noHover />
