@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import { IconButton } from "./IconButton";
+import { FallbackImage } from "./FallbackImage";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { SearchInputSkeleton } from "./Skeletons";
@@ -23,7 +23,10 @@ interface Suggestion {
 	sub?: string;
 	href: string;
 	type: "artist" | "album" | "track" | "recent";
-	icon: string;
+	// Real artwork (artist photo / album cover) to show as the row thumbnail.
+	image?: string;
+	// Generic monochrome icon shown when no artwork is available or it fails.
+	fallback: "Artist" | "Album" | "Notes" | "Search";
 	// What to persist to search history when this suggestion is chosen, so the
 	// recent-search card carries a real tidalId and routes to the item.
 	save?: { itemType: string; itemId: string; imageUrl?: string };
@@ -67,17 +70,24 @@ function SearchInputContent({
 				if (cancelled) return;
 				const items = (res.items || [])
 					.map((it: Record<string, unknown>) => {
-						const q = String(it.query ?? it.metadata ?? "").trim();
-						return q
-							? ({
-									key: `recent-${q}`,
-									label: q,
-									sub: "Recent search",
-									href: `/search?q=${encodeURIComponent(q)}`,
-									type: "recent" as const,
-									icon: "History",
-								} satisfies Suggestion)
-							: null;
+						const q = String(it.title ?? it.query ?? "").trim();
+						if (!q) return null;
+						const itType = String(it.type ?? "").toLowerCase();
+						const fallback: Suggestion["fallback"] =
+							itType === "artist"
+								? "Artist"
+								: itType === "album" || itType === "track"
+									? "Album"
+									: "Search";
+						return {
+							key: `recent-${q}`,
+							label: q,
+							sub: "Recent search",
+							href: `/search?q=${encodeURIComponent(q)}`,
+							type: "recent" as const,
+							image: (it.imageUrl as string) || undefined,
+							fallback,
+						} satisfies Suggestion;
 					})
 					.filter(Boolean) as Suggestion[];
 				setRecents(items.slice(0, 6));
@@ -108,7 +118,8 @@ function SearchInputContent({
 							sub: "Artist",
 							href: `/artist/${a.id}`,
 							type: "artist",
-							icon: "Artist",
+							image: a.picture ?? undefined,
+							fallback: "Artist",
 							save: {
 								itemType: "artist",
 								itemId: String(a.id),
@@ -125,7 +136,8 @@ function SearchInputContent({
 								? `/album/${t.album.id}`
 								: `/search?q=${encodeURIComponent(q)}`,
 							type: "track",
-							icon: "Notes",
+							image: t.album?.cover ?? undefined,
+							fallback: "Notes",
 							// Tracks route to their album, so record the album.
 							save: t.album?.id
 								? {
@@ -143,7 +155,8 @@ function SearchInputContent({
 							sub: `${al.artist?.name ?? "Unknown"} • Album`,
 							href: `/album/${al.id}`,
 							type: "album",
-							icon: "Album",
+							image: al.cover ?? undefined,
+							fallback: "Album",
 							save: {
 								itemType: "album",
 								itemId: String(al.id),
@@ -293,12 +306,15 @@ function SearchInputContent({
 								i === activeIndex ? "bg-neutral-800" : "hover:bg-neutral-900"
 							}`}
 						>
-							<Image
-								src={`/icons/Name=${s.icon}, Filled=No.svg`}
+							<FallbackImage
+								src={s.image}
 								alt=""
 								width={40}
 								height={40}
-								className="shrink-0 opacity-60 brightness-0 invert"
+								fallbackType={s.fallback}
+								className={`h-10 w-10 shrink-0 object-cover ${
+									s.type === "artist" ? "rounded-full" : "rounded"
+								}`}
 							/>
 							<span className="min-w-0 flex-1">
 								<span className="block truncate text-sm text-white">
