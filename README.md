@@ -205,7 +205,7 @@ Muse/
 │   │   │   └── artistFilters.ts          # Compilation artist detection
 │   │   ├── workers/
 │   │   │   ├── runner.ts                 # Job queue poller
-│   │   │   └── jobs/                      # enrichTrack, updateProfile, buildHomepage
+│   │   │   └── jobs/                     # enrichTrack, updateProfile, buildHomepage
 │   │   ├── auth.ts                       # Request authentication hook
 │   │   ├── jwt.ts                        # JWT sign and verify (HS256)
 │   │   ├── password.ts                   # Scrypt password hashing
