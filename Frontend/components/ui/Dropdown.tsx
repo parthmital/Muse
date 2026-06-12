@@ -50,7 +50,7 @@ export function Dropdown({
 		<div ref={dropdownRef} className={`relative ${className}`}>
 			<button
 				onClick={() => setIsOpen(!isOpen)}
-				className="flex shrink-0 items-center gap-2 rounded-md px-3 py-2 whitespace-nowrap hover:bg-neutral-800"
+				className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 whitespace-nowrap hover:bg-neutral-800"
 			>
 				<span className="text-sm font-medium">{selectedOption?.label}</span>
 				<svg
@@ -81,7 +81,7 @@ export function Dropdown({
 								onChange(option.value);
 								setIsOpen(false);
 							}}
-							className={`w-full rounded-md px-4 py-2 text-left text-sm whitespace-nowrap hover:bg-neutral-800 ${
+							className={`w-full rounded-lg px-4 py-2 text-left text-sm whitespace-nowrap hover:bg-neutral-800 ${
 								option.value === value
 									? "font-medium text-green-500"
 									: "text-neutral-400"

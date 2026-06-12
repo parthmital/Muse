@@ -86,7 +86,7 @@ export function ProgressBar({
 						onSeek(Math.max(0, progress - 5));
 					}
 				}}
-				className="group relative h-1.5 grow cursor-pointer rounded-full bg-neutral-700"
+				className="group relative h-2 grow cursor-pointer rounded-full bg-neutral-700"
 			>
 				<div
 					className="absolute h-full rounded-full bg-white"

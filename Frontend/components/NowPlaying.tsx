@@ -80,7 +80,7 @@ export function NowPlaying({
 			role="dialog"
 			aria-modal="true"
 			aria-label="Now playing"
-			className="fixed inset-0 z-[9000] flex flex-col bg-gradient-to-b from-slate-800 to-slate-950 duration-200 animate-in fade-in md:from-neutral-900 md:to-black"
+			className="fixed inset-0 z-9000 flex flex-col bg-gradient-to-b from-slate-800 to-slate-950 duration-200 animate-in fade-in md:from-neutral-900 md:to-black"
 		>
 			{/* ── Mobile layout ──────────────────────────────────────────────── */}
 			<div className="flex min-h-0 flex-1 flex-col md:hidden">
@@ -384,7 +384,7 @@ export function NowPlaying({
 							<button
 								key={t}
 								onClick={() => setTab(t)}
-								className={`rounded-full px-4 py-1.5 text-sm font-bold capitalize transition-colors ${
+								className={`rounded-full px-4 py-2 text-sm font-bold capitalize transition-colors ${
 									tab === t
 										? "bg-white text-black"
 										: "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"

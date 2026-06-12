@@ -275,7 +275,7 @@ function SearchInputContent({
 					className="absolute top-full right-0 left-0 z-50 mt-2 max-h-96 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950 p-1 shadow-2xl duration-150 animate-in fade-in slide-in-from-top-2"
 				>
 					{query.trim().length < 2 && (
-						<p className="px-3 py-1.5 text-xs font-bold tracking-wide text-neutral-500 uppercase">
+						<p className="px-3 py-2 text-xs font-bold tracking-wide text-neutral-500 uppercase">
 							Recent
 						</p>
 					)}
@@ -289,7 +289,7 @@ function SearchInputContent({
 								e.preventDefault();
 								choose(s);
 							}}
-							className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left ${
+							className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left ${
 								i === activeIndex ? "bg-neutral-800" : "hover:bg-neutral-900"
 							}`}
 						>

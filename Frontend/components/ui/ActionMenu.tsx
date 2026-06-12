@@ -365,7 +365,7 @@ export function ActionMenu({
 									autoFocus
 									preventNavigation
 									onChange={setSearchQuery}
-									className="h-10! gap-2! rounded-md! bg-neutral-800/50! pr-3! pl-0!"
+									className="h-10! gap-2! rounded-lg! bg-neutral-800/50! pr-3! pl-0!"
 								/>
 							</div>
 						)}
@@ -382,7 +382,7 @@ export function ActionMenu({
 									}}
 									className={`flex w-full items-center gap-2 ${
 										showCheckmarks && item.checked !== undefined ? "" : "pr-3"
-									} group cursor-pointer rounded-md text-left text-sm whitespace-nowrap transition-colors hover:bg-neutral-800`}
+									} group cursor-pointer rounded-lg text-left text-sm whitespace-nowrap transition-colors hover:bg-neutral-800`}
 								>
 									{item.icon && item.icon !== "undefined" && (
 										<Image

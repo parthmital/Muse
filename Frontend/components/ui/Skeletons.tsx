@@ -12,7 +12,7 @@ export function Skeleton({ className = "" }: { className?: string }) {
 
 export function TopBarSkeleton() {
 	return (
-		<div className="flex h-[44px] items-center justify-between gap-4 whitespace-nowrap">
+		<div className="flex h-11 items-center justify-between gap-4 whitespace-nowrap">
 			<div className="flex grow items-center gap-4">
 				{[1, 2, 3, 4].map((i) => (
 					<Skeleton key={i} className={`h-11 ${i === 4 ? "grow" : "w-32"}`} />
@@ -58,9 +58,9 @@ export function MediaCardSkeleton({
 			<Skeleton
 				className={`aspect-square w-full ${type === "artist" ? "rounded-full" : "rounded-lg"}`}
 			/>
-			<Skeleton className="h-4 w-3/4 rounded-md" />
+			<Skeleton className="h-4 w-3/4 rounded-lg" />
 			{type !== "artist" && (
-				<Skeleton className="h-3 w-1/2 rounded-md opacity-50" />
+				<Skeleton className="h-3 w-1/2 rounded-lg opacity-50" />
 			)}
 		</div>
 	);
@@ -82,15 +82,15 @@ export function SongRowSkeleton({
 			{/* Track info */}
 			<div className="flex items-center gap-3">
 				<Skeleton className="h-10 w-10 shrink-0 rounded" />
-				<div className="flex min-w-0 flex-col gap-1.5">
-					<Skeleton className="h-3.5 w-32 rounded" />
+				<div className="flex min-w-0 flex-col gap-2">
+					<Skeleton className="h-4 w-32 rounded" />
 					<Skeleton className="h-3 w-20 rounded opacity-60" />
 				</div>
 			</div>
 			{/* Album */}
-			{!hideAlbum && <Skeleton className="h-3.5 w-24 rounded" />}
+			{!hideAlbum && <Skeleton className="h-4 w-24 rounded" />}
 			{/* Duration */}
-			<Skeleton className="h-3.5 w-10 rounded" />
+			<Skeleton className="h-4 w-10 rounded" />
 			{/* Like */}
 			<Skeleton className="mx-auto h-5 w-5 rounded-full" />
 			{/* Actions */}
@@ -135,7 +135,7 @@ export function MediaShelfSkeleton() {
 	return (
 		<div className="flex flex-col gap-4">
 			<div className="flex items-center justify-between">
-				<Skeleton className="h-7 w-40 rounded-md" />
+				<Skeleton className="h-7 w-40 rounded-lg" />
 				<div className="flex gap-2">
 					<Skeleton className="h-7 w-7 rounded-full" />
 					<Skeleton className="h-7 w-7 rounded-full" />
@@ -243,7 +243,7 @@ export function PlayerSkeleton() {
 				<div className="flex grow items-center gap-3">
 					<Skeleton className="h-10 w-10 shrink-0 rounded" />
 					<div className="flex flex-col gap-1">
-						<Skeleton className="h-3.5 w-28 rounded" />
+						<Skeleton className="h-4 w-28 rounded" />
 						<Skeleton className="h-3 w-20 rounded opacity-60" />
 					</div>
 				</div>
@@ -299,7 +299,7 @@ export function SearchSkeleton() {
 		<div className="flex flex-col gap-8">
 			<div className="flex flex-col gap-4">
 				<div className="flex items-center justify-between">
-					<Skeleton className="h-8 w-48 rounded-md" />
+					<Skeleton className="h-8 w-48 rounded-lg" />
 					<div className="flex gap-2">
 						<Skeleton className="h-8 w-8 rounded-full" />
 						<Skeleton className="h-8 w-8 rounded-full" />
@@ -313,11 +313,11 @@ export function SearchSkeleton() {
 			</div>
 
 			<div className="flex flex-col gap-6">
-				<Skeleton className="h-8 w-32 rounded-md" />
+				<Skeleton className="h-8 w-32 rounded-lg" />
 				{[1, 2, 3].map((section) => (
 					<div key={section} className="flex flex-col gap-4">
 						<div className="flex items-center justify-between">
-							<Skeleton className="h-6 w-32 rounded-md" />
+							<Skeleton className="h-6 w-32 rounded-lg" />
 							<div className="flex gap-2">
 								<Skeleton className="h-6 w-6 rounded-full" />
 								<Skeleton className="h-6 w-6 rounded-full" />
@@ -327,7 +327,7 @@ export function SearchSkeleton() {
 							{[1, 2, 3, 4, 5, 6].map((i) => (
 								<Skeleton
 									key={i}
-									className="h-28 min-w-[200px] flex-shrink-0 rounded-xl"
+									className="h-28 min-w-50 flex-shrink-0 rounded-xl"
 								/>
 							))}
 						</div>

@@ -51,7 +51,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 			<body className="scrollbar-hide bg-black text-neutral-400">
 				<a
 					href="#main-content"
-					className="sr-only z-[9999] rounded-lg bg-white px-4 py-2 font-bold text-black focus:not-sr-only focus:absolute focus:top-3 focus:left-3"
+					className="sr-only z-9999 rounded-lg bg-white px-4 py-2 font-bold text-black focus:not-sr-only focus:absolute focus:top-3 focus:left-3"
 				>
 					Skip to content
 				</a>

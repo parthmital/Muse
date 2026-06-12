@@ -76,7 +76,7 @@ export function CompositeGridImage({
 
 	return (
 		<div
-			className={`grid ${gridCols} ${gridRows} gap-0.5 overflow-hidden rounded-lg ${className}`}
+			className={`grid ${gridCols} ${gridRows} gap-1 overflow-hidden rounded-lg ${className}`}
 		>
 			{validImages.map((img, index) => (
 				<div key={`${img}-${index}`} className="relative">

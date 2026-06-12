@@ -198,7 +198,7 @@ function SearchContentInner() {
 												<button
 													type="button"
 													onClick={() => setVisibleSongs((prev) => prev + 40)}
-													className="mt-3 self-start rounded-md border border-neutral-700 px-3 py-1 text-sm text-neutral-300 hover:bg-neutral-800"
+													className="mt-3 self-start rounded-lg border border-neutral-700 px-3 py-1 text-sm text-neutral-300 hover:bg-neutral-800"
 												>
 													Load more songs
 												</button>

@@ -68,7 +68,7 @@ export function VolumeSlider({
 					onChange(Math.max(0, value - 0.05));
 				}
 			}}
-			className={`group relative w-1.5 cursor-pointer rounded-full bg-neutral-700 ${className}`}
+			className={`group relative w-2 cursor-pointer rounded-full bg-neutral-700 ${className}`}
 		>
 			<div
 				className="absolute bottom-0 w-full rounded-full bg-white"

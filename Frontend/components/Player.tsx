@@ -223,7 +223,7 @@ export function Player() {
 
 					{/* Integrated progress hairline along the bottom edge */}
 					<div
-						className="absolute inset-x-3 bottom-1 h-0.5 overflow-hidden rounded-full bg-white/25"
+						className="absolute inset-x-3 bottom-1 h-1 overflow-hidden rounded-full bg-white/25"
 						aria-hidden
 					>
 						<div
@@ -240,10 +240,10 @@ export function Player() {
 			{showQueue && (
 				<>
 					<div
-						className="fixed inset-0 z-[60] hidden md:block"
+						className="fixed inset-0 z-60 hidden md:block"
 						onClick={() => setShowQueue(false)}
 					/>
-					<div className="fixed top-4 right-4 bottom-24 z-[61] hidden w-80 flex-col rounded-lg border border-neutral-800 bg-neutral-950 p-4 shadow-2xl md:flex">
+					<div className="fixed top-4 right-4 bottom-24 z-61 hidden w-80 flex-col rounded-lg border border-neutral-800 bg-neutral-950 p-4 shadow-2xl md:flex">
 						<QueuePanel onClose={() => setShowQueue(false)} />
 					</div>
 				</>
