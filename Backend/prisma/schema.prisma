@@ -1,13 +1,14 @@
-// Prisma schema for Muse. Models mirror the legacy better-sqlite3 schema
-// 1:1 (snake_case table/column names preserved via @map/@@map) so existing
-// data files and the analytical $queryRaw queries keep working unchanged.
+// Prisma schema for Muse. Backed by PostgreSQL via the @prisma/adapter-pg
+// driver adapter. snake_case table/column names are preserved via @map/@@map
+// so the analytical $queryRaw queries keep working unchanged. Epoch-second
+// timestamps are stored as Int with an `extract(epoch from now())` default.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 model User {
@@ -20,8 +21,8 @@ model User {
   passwordHash String? @map("password_hash")
   displayName  String? @map("display_name")
   isNew      Int     @default(1) @map("is_new")
-  createdAt  Int     @default(dbgenerated("(unixepoch())")) @map("created_at")
-  updatedAt  Int     @default(dbgenerated("(unixepoch())")) @map("updated_at")
+  createdAt  Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("created_at")
+  updatedAt  Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("updated_at")
 
   interactions UserInteraction[]
   profile      UserProfile?
@@ -42,7 +43,7 @@ model UserSetting {
   gaplessPlayback  Int     @default(1) @map("gapless_playback")
   automix          Int     @default(1)
   allowExplicit    Int     @default(1) @map("allow_explicit")
-  updatedAt        Int     @default(dbgenerated("(unixepoch())")) @map("updated_at")
+  updatedAt        Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("updated_at")
 
   user User @relation(fields: [userId], references: [id])
 
@@ -58,7 +59,7 @@ model Artist {
   genres        String?
   lastfmTags    String? @map("lastfm_tags")
   rawApiData    String? @map("raw_api_data")
-  updatedAt     Int     @default(dbgenerated("(unixepoch())")) @map("updated_at")
+  updatedAt     Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("updated_at")
 
   tracks       Track[]
   interactions UserInteraction[]
@@ -74,7 +75,7 @@ model Album {
   releaseDate   String? @map("release_date")
   musicbrainzId String? @map("musicbrainz_id")
   rawApiData    String? @map("raw_api_data")
-  updatedAt     Int     @default(dbgenerated("(unixepoch())")) @map("updated_at")
+  updatedAt     Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("updated_at")
 
   tracks       Track[]
   interactions UserInteraction[]
@@ -97,8 +98,8 @@ model Track {
   rawApiData   String? @map("raw_api_data")
   artistId     String? @map("artist_id")
   albumId      String? @map("album_id")
-  createdAt    Int     @default(dbgenerated("(unixepoch())")) @map("created_at")
-  updatedAt    Int     @default(dbgenerated("(unixepoch())")) @map("updated_at")
+  createdAt    Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("created_at")
+  updatedAt    Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("updated_at")
 
   artist         Artist?           @relation(fields: [artistId], references: [id])
   album          Album?            @relation(fields: [albumId], references: [id])
@@ -142,7 +143,7 @@ model UserInteraction {
   completionRatio  Float?  @map("completion_ratio")
   sessionId        String? @map("session_id")
   context          String?
-  occurredAt       Int     @default(dbgenerated("(unixepoch())")) @map("occurred_at")
+  occurredAt       Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("occurred_at")
 
   user   User    @relation(fields: [userId], references: [id])
   track  Track?  @relation(fields: [trackId], references: [id])
@@ -162,7 +163,7 @@ model UserProfile {
   preferredGenres    String? @map("preferred_genres")
   totalPlayCount     Int     @default(0) @map("total_play_count")
   uniqueTracksPlayed Int     @default(0) @map("unique_tracks_played")
-  updatedAt          Int     @default(dbgenerated("(unixepoch())")) @map("updated_at")
+  updatedAt          Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("updated_at")
 
   user User @relation(fields: [userId], references: [id])
 
@@ -175,7 +176,7 @@ model SessionQueue {
   queueJson String @map("queue_json")
   playedIds String @map("played_ids")
   expiresAt Int    @map("expires_at")
-  updatedAt Int    @default(dbgenerated("(unixepoch())")) @map("updated_at")
+  updatedAt Int    @default(dbgenerated("(extract(epoch from now())::integer)")) @map("updated_at")
 
   @@map("session_queues")
 }
@@ -188,7 +189,7 @@ model Job {
   attempts    Int     @default(0)
   maxAttempts Int     @default(3) @map("max_attempts")
   dedupKey    String? @map("dedup_key")
-  scheduledAt Int     @default(dbgenerated("(unixepoch())")) @map("scheduled_at")
+  scheduledAt Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("scheduled_at")
   startedAt   Int?    @map("started_at")
   leaseUntil  Int?    @map("lease_until")
   completedAt Int?    @map("completed_at")
@@ -205,7 +206,7 @@ model Recommendation {
   userId      String  @map("user_id")
   surface     String
   tracksJson  String  @map("tracks_json")
-  generatedAt Int     @default(dbgenerated("(unixepoch())")) @map("generated_at")
+  generatedAt Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("generated_at")
   expiresAt   Int?    @map("expires_at")
 
   user User @relation(fields: [userId], references: [id])
@@ -219,7 +220,7 @@ model UserLibrary {
   userId   String @map("user_id")
   itemType String @map("item_type")
   itemId   String @map("item_id")
-  addedAt  Int    @default(dbgenerated("(unixepoch())")) @map("added_at")
+  addedAt  Int    @default(dbgenerated("(extract(epoch from now())::integer)")) @map("added_at")
   isPinned Int    @default(0) @map("is_pinned")
 
   user User @relation(fields: [userId], references: [id])
@@ -236,8 +237,8 @@ model Playlist {
   title       String
   description String?
   coverUrl    String? @map("cover_url")
-  createdAt   Int     @default(dbgenerated("(unixepoch())")) @map("created_at")
-  updatedAt   Int     @default(dbgenerated("(unixepoch())")) @map("updated_at")
+  createdAt   Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("created_at")
+  updatedAt   Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("updated_at")
 
   user   User            @relation(fields: [userId], references: [id])
   tracks PlaylistTrack[]
@@ -250,7 +251,7 @@ model PlaylistTrack {
   playlistId String @map("playlist_id")
   trackId    String @map("track_id")
   position   Int
-  addedAt    Int    @default(dbgenerated("(unixepoch())")) @map("added_at")
+  addedAt    Int    @default(dbgenerated("(extract(epoch from now())::integer)")) @map("added_at")
 
   playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
   track    Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
@@ -267,7 +268,7 @@ model SearchHistory {
   itemId     String? @map("item_id")
   imageUrl   String? @map("image_url")
   metadata   String?
-  searchedAt Int     @default(dbgenerated("(unixepoch())")) @map("searched_at")
+  searchedAt Int     @default(dbgenerated("(extract(epoch from now())::integer)")) @map("searched_at")
 
   user User @relation(fields: [userId], references: [id])
 
@@ -324,7 +325,7 @@ model ShelfImpression {
   userId   String @map("user_id")
   itemType String @map("item_type")
   itemId   String @map("item_id")
-  shownAt  Int    @default(dbgenerated("(unixepoch())")) @map("shown_at")
+  shownAt  Int    @default(dbgenerated("(extract(epoch from now())::integer)")) @map("shown_at")
 
   @@index([userId, itemType, itemId, shownAt], name: "shelf_impressions_idx")
   @@map("shelf_impressions")

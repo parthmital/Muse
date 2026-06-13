@@ -26,11 +26,11 @@ Muse lets you browse, search, and play music through a web browser. It learns yo
 
 ### For Technical Readers
 
-The system is built from three running processes plus a shared database:
+The system is built from four running processes plus a shared database:
 
-1. **API Server (Node.js + TypeScript)**: A Fastify REST API that handles authentication, user interactions, library and playlist management, recommendation generation, search, and proxying of the music service. SQLite (through Prisma 7 with the better-sqlite3 adapter, in WAL mode) is the primary datastore. The same SQLite database also holds a durable, leased job queue.
+1. **API Server (Node.js + TypeScript)**: A Fastify REST API that handles authentication, user interactions, library and playlist management, recommendation generation, search, and proxying of the music service. PostgreSQL (through Prisma 7 with the pg driver adapter) is the primary datastore. The same database also holds a durable, leased job queue.
 
-2. **Worker (Node.js + TypeScript)**: A separate process that polls the SQLite job queue and runs background jobs for track enrichment, user profile rebuilding, and homepage shelf building.
+2. **Worker (Node.js + TypeScript)**: A separate process that polls the PostgreSQL job queue and runs background jobs for track enrichment, user profile rebuilding, and homepage shelf building.
 
 3. **Frontend (Next.js + React)**: A server-rendered React application using the App Router. Dash.js handles MPEG-DASH adaptive streaming, the Web Audio API handles loudness normalisation and crossfade, and TailwindCSS provides the styling. The frontend is also a Progressive Web App (PWA) with a service worker and an installable manifest.
 
@@ -46,7 +46,7 @@ Commercial streaming services lock users into closed ecosystems with limited con
 
 Muse addresses these gaps by providing:
 
-- Complete data ownership through local SQLite storage
+- Complete data ownership through a self-hosted PostgreSQL database
 - Transparent recommendation logic that can be inspected and modified
 - A responsive, modern interface comparable to commercial offerings, on both desktop and mobile
 - Integration with existing music metadata and streaming services (Tidal through the hifi-api service, Last.fm, and MusicBrainz)
@@ -78,9 +78,9 @@ Muse addresses these gaps by providing:
 
 - **JWT Authentication**: Stateless session tokens signed with HMAC-SHA256 and valid for 30 days, with passwords hashed using scrypt (a per-user 16-byte salt and a 64-byte derived key), verified in constant time. No external authentication library is used.
 - **Last.fm Recommendation Engine**: Expands listening seeds through Last.fm content-similarity endpoints and blends the results with popularity and recency signals.
-- **Durable Background Job Queue**: A SQLite-backed, leased, de-duplicated job queue polled every 500 milliseconds, running up to 4 jobs in parallel, with up to 3 attempts per job and exponential backoff (a 60-second base multiplied by the attempt number). Crashed worker jobs are automatically reclaimed after the 300-second lease expires.
+- **Durable Background Job Queue**: A PostgreSQL-backed, leased, de-duplicated job queue polled every 500 milliseconds, running up to 4 jobs in parallel, with up to 3 attempts per job and exponential backoff (a 60-second base multiplied by the attempt number). Crashed worker jobs are automatically reclaimed after the 300-second lease expires.
 - **Three Background Job Types**: Track enrichment, user profile rebuilding, and homepage shelf building.
-- **Multi-Level Caching**: In-memory LRU caches sized for up to 10,000 user profiles (5-minute TTL), 50,000 recommendation result sets (2-minute TTL, served stale while rebuilding), and 100,000 playback sessions (3-hour TTL), plus Tidal lookups; a persistent SQLite cache for Last.fm responses (30-day grace period); and a persistent Last.fm to Tidal entity-mapping cache (including a negative cache for entities confirmed not to exist on Tidal).
+- **Multi-Level Caching**: In-memory LRU caches sized for up to 10,000 user profiles (5-minute TTL), 50,000 recommendation result sets (2-minute TTL, served stale while rebuilding), and 100,000 playback sessions (3-hour TTL), plus Tidal lookups; a persistent PostgreSQL cache for Last.fm responses (30-day grace period); and a persistent Last.fm to Tidal entity-mapping cache (including a negative cache for entities confirmed not to exist on Tidal).
 - **Colour Extraction**: Vibrant colour extraction from album and artist artwork (using node-vibrant, jimp, and fast-average-color) for UI theming.
 - **Genre Preference Profiles**: Aggregates up to the 5,000 most recent interactions into weighted, recency-decayed genre preferences (the top 20 genres are kept) that drive personalised homepage sections.
 - **Artist-Diversity Re-ranking**: Caps the number of tracks per artist in a result set to balance similarity against variety.
@@ -99,8 +99,9 @@ Muse addresses these gaps by providing:
 | Language         | TypeScript                             | 5.4.5               |
 | Framework        | Fastify                                | 4.27.0              |
 | ORM              | Prisma                                 | 7.8.0               |
-| Database driver  | better-sqlite3                         | 12.8.0              |
-| Prisma adapter   | @prisma/adapter-better-sqlite3         | 7.8.0               |
+| Database         | PostgreSQL                             | 16                  |
+| Database driver  | pg                                     | 8.13.1              |
+| Prisma adapter   | @prisma/adapter-pg                     | 7.8.0               |
 | Validation       | Zod                                    | 3.23.8              |
 | Logging          | Pino                                   | 9.2.0               |
 | Concurrency      | fastq, p-limit                         | 1.17.1, 5.0.0       |
@@ -144,15 +145,15 @@ The frontend also uses the browser-native Web Audio API for crossfade, gapless p
 
 ## System Architecture
 
-Muse runs as four processes that communicate over HTTP and a shared SQLite database: the Node.js API server, the Node.js worker, the Python hifi-api service, and the Next.js frontend.
+Muse runs as four processes that communicate over HTTP and a shared PostgreSQL database: the Node.js API server, the Node.js worker, the Python hifi-api service, and the Next.js frontend.
 
 ### Component Interaction
 
 The **hifi-api service** runs on port 8000. It authenticates against Tidal once (storing a `token.json`) and then proxies catalogue metadata, search, cover art, lyrics, and streaming manifests.
 
-The **Node.js API Server** runs on port 5000 and is the primary backend. It handles authentication, all client requests, the SQLite database, recommendation generation through Last.fm, and proxying of the hifi-api service. On startup it runs the Prisma schema sync, validates the hifi-api connection, and ensures a fallback development user exists.
+The **Node.js API Server** runs on port 5000 and is the primary backend. It handles authentication, all client requests, the PostgreSQL database, recommendation generation through Last.fm, and proxying of the hifi-api service. On startup it runs the Prisma schema sync, validates the hifi-api connection, and ensures a fallback development user exists.
 
-The **Worker Process** polls the SQLite job queue every 500 milliseconds for `enrich_track`, `update_profile`, and `build_homepage` jobs, processing up to 4 at a time. Enrichment fetches Last.fm tags and MusicBrainz genre and identifiers; profile updates recompute the user's weighted genre preferences and then queue a homepage rebuild; homepage building writes fresh, personalised shelves to a persistent cache that stays fresh for 6 hours.
+The **Worker Process** polls the PostgreSQL job queue every 500 milliseconds for `enrich_track`, `update_profile`, and `build_homepage` jobs, processing up to 4 at a time. Enrichment fetches Last.fm tags and MusicBrainz genre and identifiers; profile updates recompute the user's weighted genre preferences and then queue a homepage rebuild; homepage building writes fresh, personalised shelves to a persistent cache that stays fresh for 6 hours.
 
 The **Next.js Frontend** runs on port 3000 in development, or serves a built application in production. It communicates only with the Node.js API and renders server-side for initial page loads.
 
@@ -170,7 +171,7 @@ For recommendation generation, the API gathers the user's listening seeds from t
 Muse/
 ├── Backend/                              # Node.js API and worker
 │   ├── prisma/
-│   │   └── schema.prisma                 # SQLite schema (19 models)
+│   │   └── schema.prisma                 # PostgreSQL schema (19 models)
 │   ├── src/
 │   │   ├── api/                          # Fastify route handlers
 │   │   │   ├── actions.ts                # Toggle like / library / pin actions
@@ -187,7 +188,7 @@ Muse/
 │   │   │   └── users.ts                  # Profile, top tracks, top artists
 │   │   ├── cache/                        # In-memory LRU caches
 │   │   ├── db/
-│   │   │   ├── prisma.ts                 # Prisma client and SQLite adapter
+│   │   │   ├── prisma.ts                 # Prisma client and pg adapter
 │   │   │   ├── helpers.ts                # JSON serialisation helpers
 │   │   │   └── repositories/             # Data access (users, jobs, catalog, etc.)
 │   │   ├── services/                     # Business logic layer
@@ -197,7 +198,7 @@ Muse/
 │   │   │   ├── homepageBuilder.ts        # Personalised shelf generation
 │   │   │   ├── homepageCache.ts          # Persistent homepage cache
 │   │   │   ├── hifiClient.ts             # hifi-api (Tidal) client
-│   │   │   ├── lastfmClient.ts           # Last.fm API client (SQLite-cached)
+│   │   │   ├── lastfmClient.ts           # Last.fm API client (Postgres-cached)
 │   │   │   ├── musicbrainzClient.ts      # MusicBrainz genre and id client
 │   │   │   ├── popularityService.ts      # Popularity scoring and Tidal resolution
 │   │   │   ├── serviceMapping.ts         # Last.fm to Tidal entity mapping cache
@@ -280,6 +281,7 @@ Muse/
 ### Prerequisites
 
 - Node.js 20 or later
+- PostgreSQL 14 or later (a running server the backend can connect to; `prisma db push` creates the schema on first start)
 - Python 3.11 or later (for the bundled `hifi-api/` service that proxies Tidal metadata and streaming)
 - A Tidal account (the `hifi-api` service authenticates against it; see step 3 below)
 - A Last.fm API key (required for recommendations and enrichment; obtain one at https://www.last.fm/api/account/create)
@@ -327,7 +329,7 @@ The `hifi-api/` directory is committed directly into this repository (it is vend
    NODE_ENV=development
    PORT=5000
    API_BASE_URL=http://localhost:5000
-   SQLITE_PATH=./data/music_rec.db
+   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/muse
    TIDAL_API_BASE_URL=http://localhost:8000
    LASTFM_API_KEY=your_lastfm_key
    JWT_SECRET=change-me-to-a-long-random-string
@@ -430,7 +432,7 @@ Run these from the `Backend` directory unless noted:
 | `npm run dev`             | Start the API server with hot reload               |
 | `npm run worker`          | Start the job queue processor                      |
 | `npm run build`           | Generate the Prisma client and compile TypeScript  |
-| `npm run db:push`         | Sync the Prisma schema to SQLite                   |
+| `npm run db:push`         | Sync the Prisma schema to PostgreSQL               |
 | `npm run db:studio`       | Open Prisma Studio to inspect the database         |
 | `npm test`                | Run the Vitest test suite                          |
 | `npm run lint`            | Run ESLint                                         |
@@ -443,7 +445,7 @@ Run these from the `Backend` directory unless noted:
 - **API Routes**: Each domain has its own route file in `src/api/`. Routes handle HTTP and authorisation concerns only and delegate to services and repositories.
 - **Services**: Business logic lives in `src/services/`. Services have no HTTP knowledge.
 - **Repositories**: All database access is centralised in `src/db/repositories/`.
-- **Database**: SQLite is accessed through Prisma with the better-sqlite3 adapter. The schema lives in `Backend/prisma/schema.prisma`, and `prisma db push` syncs it (run automatically by the `predev` script locally and by the Docker entrypoint).
+- **Database**: PostgreSQL is accessed through Prisma with the pg driver adapter. The schema lives in `Backend/prisma/schema.prisma`, and `prisma db push` syncs it (run automatically by the `predev` script locally and by the Docker entrypoint).
 - **Workers**: Jobs are idempotent and can be retried. Each job type has a handler in `src/workers/jobs/`.
 
 ---
@@ -454,32 +456,32 @@ Run these from the `Backend` directory unless noted:
 
 The most commonly changed variables are listed below. The full list, with comments, is in `Backend/.env.example`.
 
-| Variable               | Default                           | Description                                        |
-| ---------------------- | --------------------------------- | -------------------------------------------------- |
-| `NODE_ENV`             | `development`                     | Runtime environment                                |
-| `PORT`                 | `5000`                            | API server port                                    |
-| `API_BASE_URL`         | `http://localhost:5000`           | Public API URL                                     |
-| `LOG_LEVEL`            | `info`                            | Pino log level                                     |
-| `SQLITE_PATH`          | `./data/music_rec.db`             | Database file location                             |
-| `TIDAL_API_BASE_URL`   | `http://localhost:8000`           | hifi-api service base URL                          |
-| `LASTFM_API_KEY`       | _(none)_                          | Last.fm API key (recommendations and enrichment)   |
-| `MUSICBRAINZ_APP`      | `MusicRecEngine/1.0`              | MusicBrainz User-Agent app string                  |
-| `DEV_USER_ID`          | `dev-user-001`                    | Development-only fallback identity (no token)      |
-| `JWT_SECRET`           | _(insecure default; set in prod)_ | HMAC secret for signing session tokens             |
-| `JWT_TTL_SEC`          | `2592000`                         | Session token lifetime (30 days)                   |
-| `JOB_MAX_ATTEMPTS`     | `3`                               | Maximum retries per background job                 |
-| `JOB_RETRY_BASE_SEC`   | `60`                              | Base backoff between job retries                   |
-| `JOB_LEASE_SEC`        | `300`                             | Job lease before reclaiming a crashed worker's job |
-| `WORKER_POLL_MS`       | `500`                             | Job polling interval                               |
-| `WORKER_CONCURRENCY`   | `4`                               | Parallel job limit                                 |
-| `QUEUE_SIZE`           | `25`                              | Default queue length                               |
-| `QUEUE_LOW_WATER_MARK` | `5`                               | Refill the queue when it falls below this          |
-| `HOME_REC_COUNT`       | `20`                              | Recommendations per shelf                          |
-| `MIX_TRACK_COUNT`      | `30`                              | Tracks per generated mix                           |
-| `RECENCY_DECAY_DAYS`   | `30`                              | History decay period                               |
-| `CACHE_PROFILE_TTL_MS` | `300000`                          | Profile cache TTL (5 minutes)                      |
-| `CACHE_REC_TTL_MS`     | `120000`                          | Recommendation cache TTL (2 minutes)               |
-| `HOMEPAGE_FRESH_SEC`   | `21600`                           | Homepage cache freshness window (6 hours)          |
+| Variable               | Default                                              | Description                                        |
+| ---------------------- | ---------------------------------------------------- | -------------------------------------------------- |
+| `NODE_ENV`             | `development`                                        | Runtime environment                                |
+| `PORT`                 | `5000`                                               | API server port                                    |
+| `API_BASE_URL`         | `http://localhost:5000`                              | Public API URL                                     |
+| `LOG_LEVEL`            | `info`                                               | Pino log level                                     |
+| `DATABASE_URL`         | `postgresql://postgres:postgres@localhost:5432/muse` | PostgreSQL connection string                       |
+| `TIDAL_API_BASE_URL`   | `http://localhost:8000`                              | hifi-api service base URL                          |
+| `LASTFM_API_KEY`       | _(none)_                                             | Last.fm API key (recommendations and enrichment)   |
+| `MUSICBRAINZ_APP`      | `MusicRecEngine/1.0`                                 | MusicBrainz User-Agent app string                  |
+| `DEV_USER_ID`          | `dev-user-001`                                       | Development-only fallback identity (no token)      |
+| `JWT_SECRET`           | _(insecure default; set in prod)_                    | HMAC secret for signing session tokens             |
+| `JWT_TTL_SEC`          | `2592000`                                            | Session token lifetime (30 days)                   |
+| `JOB_MAX_ATTEMPTS`     | `3`                                                  | Maximum retries per background job                 |
+| `JOB_RETRY_BASE_SEC`   | `60`                                                 | Base backoff between job retries                   |
+| `JOB_LEASE_SEC`        | `300`                                                | Job lease before reclaiming a crashed worker's job |
+| `WORKER_POLL_MS`       | `500`                                                | Job polling interval                               |
+| `WORKER_CONCURRENCY`   | `4`                                                  | Parallel job limit                                 |
+| `QUEUE_SIZE`           | `25`                                                 | Default queue length                               |
+| `QUEUE_LOW_WATER_MARK` | `5`                                                  | Refill the queue when it falls below this          |
+| `HOME_REC_COUNT`       | `20`                                                 | Recommendations per shelf                          |
+| `MIX_TRACK_COUNT`      | `30`                                                 | Tracks per generated mix                           |
+| `RECENCY_DECAY_DAYS`   | `30`                                                 | History decay period                               |
+| `CACHE_PROFILE_TTL_MS` | `300000`                                             | Profile cache TTL (5 minutes)                      |
+| `CACHE_REC_TTL_MS`     | `120000`                                             | Recommendation cache TTL (2 minutes)               |
+| `HOMEPAGE_FRESH_SEC`   | `21600`                                              | Homepage cache freshness window (6 hours)          |
 
 Additional tuning variables control recommender behaviour (`SEED_TRACK_CAP`, `SEED_ARTIST_CAP`, `SIMILAR_PER_TRACK`, `MAX_TIDAL_LOOKUPS`, `TIDAL_RESOLVE_BATCH`, `PROFILE_MAX_GENRES`), session handling (`SESSION_TTL_MS`, `PLAYED_IDS_HISTORY_CAP`, `HIGH_SIGNAL_COMPLETION_RATIO`), and homepage building (`SECTION_ITEM_COUNT`, `COLLECTION_TRACK_COUNT`, `TRACK_POOL_SIZE`).
 
@@ -579,7 +581,7 @@ To verify recommendations are working:
 
 1. **Build**: Run `npm run build` at the root to build both the Backend and the Frontend.
 2. **Environment Variables**: Ensure all required variables are set, especially a strong `JWT_SECRET` and a valid `LASTFM_API_KEY`.
-3. **Database**: Place the SQLite file on persistent storage.
+3. **Database**: Run PostgreSQL on persistent storage and point `DATABASE_URL` at it.
 4. **Process Management**: Use a process manager such as PM2, systemd, or Docker to manage the API, worker, and hifi-api processes.
 
 ### Docker Deployment
@@ -591,9 +593,9 @@ cp Backend/.env.example Backend/.env   # fill in LASTFM_API_KEY, JWT_SECRET, and
 docker compose up --build
 ```
 
-The backend image's entrypoint (`Backend/docker-entrypoint.sh`) runs `prisma db push` on start, so the schema is created automatically on a fresh volume. The API and the worker share a named SQLite volume. For a production deployment, place the stack behind a reverse proxy (such as nginx or traefik) for SSL termination and routing.
+The backend image's entrypoint (`Backend/docker-entrypoint.sh`) runs `prisma db push` on start, so the schema is created automatically against a fresh PostgreSQL database. The compose stack runs a `postgres` service whose data lives on a named volume, and the API and worker connect to it over the compose network. For a production deployment, place the stack behind a reverse proxy (such as nginx or traefik) for SSL termination and routing.
 
-The four compose services and their ports are: hifi-api (8000), the backend API (5000), the backend worker (internal only), and the frontend (3000).
+The five compose services and their ports are: postgres (5432), hifi-api (8000), the backend API (5000), the backend worker (internal only), and the frontend (3000).
 
 ---
 
@@ -604,14 +606,13 @@ The four compose services and their ports are: hifi-api (8000), the backend API 
 Several layers of caching improve response times:
 
 1. **In-Memory LRU**: User profiles (up to 10,000 entries, 5-minute TTL), recommendation results (up to 50,000 entries, 2-minute TTL, served stale while rebuilding), playback sessions (up to 100,000 entries, 3-hour TTL), and Tidal lookups are cached in memory.
-2. **Persistent Last.fm Cache**: All Last.fm responses are cached in SQLite, keyed by method and parameters, with a 30-day grace period before cleanup.
-3. **Persistent Service Mapping Cache**: Last.fm to Tidal entity resolutions are cached in SQLite, including a negative cache for entities confirmed not to be on Tidal, which avoids repeated failed lookups.
+2. **Persistent Last.fm Cache**: All Last.fm responses are cached in PostgreSQL, keyed by method and parameters, with a 30-day grace period before cleanup.
+3. **Persistent Service Mapping Cache**: Last.fm to Tidal entity resolutions are cached in PostgreSQL, including a negative cache for entities confirmed not to be on Tidal, which avoids repeated failed lookups.
 4. **Persistent Homepage Cache**: Built homepage shelves are written to the database and served while fresh (a 6-hour window).
-5. **SQLite Pragmas**: Query caching through pragmas (a larger cache size and memory-mapped I/O).
 
 ### Database Optimisations
 
-SQLite is configured at startup with WAL mode for concurrent reads during writes, `synchronous = NORMAL`, a 64 MB page cache (`cache_size = -65536`), in-memory temporary storage, 256 MB of memory-mapped I/O (`mmap_size`), a WAL auto-checkpoint every 1,000 pages, and foreign keys enabled. Indexes cover foreign keys and common query patterns, including interaction lookups by user, event type, and time.
+PostgreSQL serves the workload with a connection pool shared by the API and worker processes. Indexes cover foreign keys and common query patterns, including interaction lookups by user, event type, and time.
 
 ### Recommendation Latency
 
@@ -624,7 +625,7 @@ Recommendation latency is dominated by outbound Last.fm and Tidal calls. To keep
 
 ### Trade-offs
 
-1. **SQLite versus PostgreSQL**: SQLite was chosen for simplicity in single-node deployments. It limits horizontal scaling but removes network overhead and configuration complexity.
+1. **PostgreSQL**: PostgreSQL is the datastore. It supports concurrent connections from the API and worker processes and scales beyond a single node, at the cost of running and configuring a database server.
 
 2. **Last.fm Similarity versus Local Models**: Recommendations rely on Last.fm's crowd-sourced listening data rather than a local machine-learning model. This removes all model and inference infrastructure at the cost of a network dependency and per-request API calls.
 
@@ -644,7 +645,7 @@ Recommendation latency is dominated by outbound Last.fm and Tidal calls. To keep
 
 5. **No Collaborative Filtering**: Recommendations are based on content similarity (Last.fm) and popularity. True collaborative filtering across users is not implemented.
 
-6. **Single-Node Design**: The SQLite-based design targets a single node. Running multiple API instances against the same database file is not supported.
+6. **Shared Database**: All API and worker instances connect to a single PostgreSQL server. Scaling out the application tier is supported, but the database itself is a shared dependency that must be provisioned and managed separately.
 
 ---
 
@@ -678,7 +679,7 @@ Recommendation latency is dominated by outbound Last.fm and Tidal calls. To keep
 
 - Confirm `JWT_SECRET` is set and consistent across restarts (changing it invalidates existing tokens).
 - Ensure passwords are at least eight characters long.
-- Check that the database is writable at the configured `SQLITE_PATH`.
+- Check that the PostgreSQL server at the configured `DATABASE_URL` is reachable and accepting writes.
 
 ---
 

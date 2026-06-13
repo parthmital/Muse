@@ -8,7 +8,7 @@ import { incr } from "../metrics.js";
 const log = logger.child({ scope: "lastfm" });
 const BASE = "https://ws.audioscrobbler.com/2.0/";
 
-// ── Response cache (SQLite, ToS §4.3.4) ──────────────────────────────────────
+// ── Response cache (persisted in Postgres, ToS §4.3.4) ───────────────────────
 // Last.fm data changes slowly, so cache every response and serve it on repeat
 // calls. TTL depends on how fast the underlying data moves. On a rate-limit
 // (error 29) we fall back to a stale cached row rather than re-hitting the API.

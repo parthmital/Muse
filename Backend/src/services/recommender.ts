@@ -146,7 +146,7 @@ async function getUserSeeds(
 ): Promise<{ tracks: SeedTrack[]; artists: string[] }> {
 	// Weighted recent interactions (likes/saves/repeats rank above plays).
 	const rows = await prisma.$queryRaw<SeedTrack[]>`
-		SELECT t.id as id, t.title as title, ar.name as artist,
+		SELECT t.id as id, t.title as title, MAX(ar.name) as artist,
 			MAX(ui.occurred_at) as last_at,
 			SUM(CASE WHEN ui.event_type IN ('like','save','repeat','playlist_add') THEN 3
 					 WHEN ui.event_type = 'play' THEN 1 ELSE 0 END) as weight
@@ -411,12 +411,12 @@ async function overexposedTrackIds(userId: string): Promise<Set<string>> {
 	try {
 		const cutoffSec = Math.floor(Date.now() / 1000) - 14 * 86400;
 		const rows = await prisma.$queryRaw<Array<{ item_id: string }>>`
-			SELECT item_id, COUNT(*) as c
+			SELECT item_id
 			 FROM shelf_impressions
 			 WHERE user_id = ${userId} AND item_type IN ('track','mix')
 			   AND shown_at >= ${cutoffSec}
 			 GROUP BY item_id
-			 HAVING c >= 4`;
+			 HAVING COUNT(*) >= 4`;
 		return new Set(rows.map((r) => String(r.item_id)));
 	} catch {
 		return new Set();
@@ -492,11 +492,11 @@ export async function getFavouriteArtists(
 			a.name,
 			a.picture_url,
 			a.genres,
-			COUNT(ui.id) as play_count,
+			COUNT(ui.id)::int as play_count,
 			SUM(CASE WHEN ui.event_type IN ('like', 'save', 'follow') THEN 2
 					 WHEN ui.event_type = 'play' THEN 1
 					 WHEN ui.event_type = 'skip' THEN -0.5
-					 ELSE 0 END) as score
+					 ELSE 0 END)::float as score
 		FROM artists a
 		LEFT JOIN user_interactions ui ON a.id = ui.artist_id AND ui.user_id = ${userId}
 		WHERE ui.user_id = ${userId} OR a.id IN (
@@ -633,13 +633,12 @@ export async function getAlbumsForYou(
 			.map(([g]) => g);
 
 		const albumRows = await prisma.$queryRaw<AlbumRow[]>`
-			SELECT DISTINCT
+			SELECT
 				al.id,
 				al.title,
 				al.cover_url,
 				al.release_date,
-				ar.name as artist_name,
-				tf.genre,
+				MAX(ar.name) as artist_name,
 				MAX(t.popularity) as album_popularity
 			FROM albums al
 			JOIN tracks t ON t.album_id = al.id
@@ -666,7 +665,7 @@ export async function getAlbumsForYou(
 				al.title,
 				al.cover_url,
 				al.release_date,
-				ar.name as artist_name,
+				MAX(ar.name) as artist_name,
 				MAX(t.popularity) as album_popularity
 			FROM albums al
 			JOIN tracks t ON t.album_id = al.id
@@ -703,7 +702,7 @@ export async function getTopMixes(
 	>`
 		SELECT
 			t.mix_ids,
-			COUNT(ui.id) as play_count,
+			COUNT(ui.id)::int as play_count,
 			MAX(ui.occurred_at) as last_played
 		FROM user_interactions ui
 		JOIN tracks t ON t.id = ui.track_id

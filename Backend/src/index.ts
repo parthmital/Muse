@@ -31,7 +31,7 @@ const app = Fastify({
 	},
 });
 
-// Initialize DB (pragmas), report dataset size, ensure dev user
+// Initialize DB (connect), report dataset size, ensure dev user
 try {
 	await initDb();
 

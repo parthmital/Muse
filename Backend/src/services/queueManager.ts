@@ -78,7 +78,7 @@ export async function getQueue(sessionId: string): Promise<RecommendedTrack[]> {
 	return data?.tracks ?? [];
 }
 
-// ── SQLite persistence ────────────────────────────────────────────────────────
+// ── Database persistence ──────────────────────────────────────────────────────
 async function persistQueue(
 	sessionId: string,
 	userId: string,

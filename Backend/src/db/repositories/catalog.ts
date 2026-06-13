@@ -3,8 +3,8 @@
  *
  * Single home for the "insert a Tidal entity into our local catalog if we
  * haven't seen it" logic that was previously copy-pasted across recommender.ts
- * and homepageBuilder.ts. upsert(..., update: {}) reproduces the old
- * `INSERT OR IGNORE` semantics: create on first sight, never clobber on repeat.
+ * and homepageBuilder.ts. upsert(..., update: {}) gives insert-or-ignore
+ * semantics: create on first sight, never clobber on repeat.
  */
 import { prisma } from "../prisma.js";
 import { toJson } from "../helpers.js";

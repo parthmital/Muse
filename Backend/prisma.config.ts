@@ -1,13 +1,13 @@
 // Prisma 7 CLI configuration (migrate / db push / studio).
-// The DB URL is derived from the same SQLITE_PATH the runtime uses (resolved to
-// an absolute path so the CLI and the better-sqlite3 driver adapter agree),
-// falling back to an explicit DATABASE_URL if one is set.
+// Prisma 7 no longer reads the datasource URL from the schema, so the CLI gets
+// it from here (DATABASE_URL). The application runtime connects via the pg
+// driver adapter in src/db/prisma.ts using the same DATABASE_URL.
 import "dotenv/config";
-import { resolve } from "node:path";
 import { defineConfig } from "prisma/config";
 
-const sqlitePath = process.env.SQLITE_PATH ?? "./data/music_rec.db";
-const url = process.env.DATABASE_URL ?? `file:${resolve(sqlitePath)}`;
+const url =
+	process.env.DATABASE_URL ??
+	"postgresql://postgres:postgres@localhost:5432/muse";
 
 export default defineConfig({
 	schema: "prisma/schema.prisma",

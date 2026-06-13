@@ -1,7 +1,7 @@
 /**
  * User settings data access (Prisma).
  *
- * Booleans are stored as SQLite integers (0/1), matching the rest of the schema
+ * Booleans are stored as integers (0/1), matching the rest of the schema
  * (is_new, is_pinned, explicit). This module exposes them as real booleans at
  * the application boundary.
  */

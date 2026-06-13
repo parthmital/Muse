@@ -1,17 +1,36 @@
 # =============================================================================
-# Muse — full stack (hifi-api + backend API + backend worker + frontend)
+# Muse — full stack (postgres + hifi-api + backend API + backend worker + frontend)
 # =============================================================================
 # Usage:
 #   1. cp Backend/.env.example Backend/.env   # fill in LASTFM_API_KEY etc.
 #   2. docker compose up --build
 #
 # Service ports (host:container):
+#   postgres     5432:5432
 #   hifi-api     8000:8000
 #   backend-api  5000:5000
 #   frontend     3000:3000
 # =============================================================================
 
 services:
+  # ── PostgreSQL database ────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: muse
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d muse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   # ── Python FastAPI hi-fi streaming/metadata service ────────────────────────
   hifi-api:
     build: ./hifi-api
@@ -26,22 +45,23 @@ services:
     ports:
       - "5000:5000"
     depends_on:
-      - hifi-api
+      postgres:
+        condition: service_healthy
+      hifi-api:
+        condition: service_started
     env_file:
       - ./Backend/.env
     environment:
       NODE_ENV: production
       PORT: "5000"
-      # SQLite lives on the shared named volume mounted at /app/data.
-      SQLITE_PATH: /app/data/music_rec.db
+      # Connect to the postgres service over the compose network.
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/muse
       # Talk to the hifi-api service over the compose network.
       TIDAL_API_BASE_URL: http://hifi-api:8000
       # Pass LASTFM_API_KEY through from the host env if set (falls back to the
       # value in Backend/.env via env_file). Without it, discovery/recommendations
       # silently degrade. Set JWT_SECRET in Backend/.env for a real deployment.
       LASTFM_API_KEY: ${LASTFM_API_KEY:-}
-    volumes:
-      - backend-data:/app/data
     restart: unless-stopped
 
   # ── Node background worker (same image as backend-api) ─────────────────────
@@ -50,17 +70,19 @@ services:
     image: muse-backend
     command: ["node", "dist/workers/runner.js"]
     depends_on:
-      - hifi-api
-      - backend-api
+      postgres:
+        condition: service_healthy
+      hifi-api:
+        condition: service_started
+      backend-api:
+        condition: service_started
     env_file:
       - ./Backend/.env
     environment:
       NODE_ENV: production
-      SQLITE_PATH: /app/data/music_rec.db
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/muse
       TIDAL_API_BASE_URL: http://hifi-api:8000
       LASTFM_API_KEY: ${LASTFM_API_KEY:-}
-    volumes:
-      - backend-data:/app/data
     restart: unless-stopped
 
   # ── Next.js frontend ───────────────────────────────────────────────────────
@@ -80,6 +102,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  # Named volume for the SQLite database, shared by backend-api and
-  # backend-worker so both processes see the same file.
-  backend-data:
+  # Named volume for the PostgreSQL data directory.
+  postgres-data:

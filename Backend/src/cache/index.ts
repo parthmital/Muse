@@ -1,7 +1,7 @@
 /**
  * src/cache/index.ts
  * In-memory LRU caches with TTL.
- * Avoids repeated SQLite reads for hot data.
+ * Avoids repeated database reads for hot data.
  *
  * Caches:
  *   profileCache   – user genre-preference profiles (5m TTL)

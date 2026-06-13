@@ -1,6 +1,6 @@
 /**
  * src/workers/runner.ts
- * SQLite-backed job queue worker. Run as a separate process:
+ * PostgreSQL-backed job queue worker. Run as a separate process:
  *   npx tsx src/workers/runner.ts
  *
  * Jobs are polled every WORKER_POLL_MS ms and claimed with a lease, so a

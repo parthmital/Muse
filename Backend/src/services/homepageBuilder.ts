@@ -255,14 +255,23 @@ async function buildTrackPool(
 		}
 	};
 
+	// DISTINCT ON keeps one row per track (its most recent interaction); the outer
+	// query then orders those distinct tracks by recency. Postgres requires the
+	// DISTINCT ON column to lead the inner ORDER BY, hence the nesting.
 	const recentRows = await prisma.$queryRaw<any[]>`
-		SELECT DISTINCT t.id as track_id, t.title, t.popularity, t.artist_id, ar.name as artist_name, ar.picture_url as artist_picture_url, al.title as album_title, al.cover_url
-		 FROM user_interactions ui
-		 JOIN tracks t ON t.id = ui.track_id
-		 LEFT JOIN artists ar ON ar.id = t.artist_id
-		 LEFT JOIN albums al ON al.id = t.album_id
-		 WHERE ui.user_id = ${userId}
-		 ORDER BY ui.occurred_at DESC
+		SELECT * FROM (
+			SELECT DISTINCT ON (t.id)
+				t.id as track_id, t.title, t.popularity, t.artist_id,
+				ar.name as artist_name, ar.picture_url as artist_picture_url,
+				al.title as album_title, al.cover_url, ui.occurred_at as last_at
+			 FROM user_interactions ui
+			 JOIN tracks t ON t.id = ui.track_id
+			 LEFT JOIN artists ar ON ar.id = t.artist_id
+			 LEFT JOIN albums al ON al.id = t.album_id
+			 WHERE ui.user_id = ${userId}
+			 ORDER BY t.id, ui.occurred_at DESC
+		) recent
+		 ORDER BY last_at DESC
 		 LIMIT 250`;
 	addTracks(recentRows.map(toPoolTrack));
 
@@ -594,7 +603,7 @@ function buildGenreMixTitle(genre: string): string {
 	return `${genre} Mix`;
 }
 
-// Last.fm responses are cached in lastfmClient (SQLite), so no in-memory tag
+// Last.fm responses are cached in lastfmClient (Postgres), so no in-memory tag
 // cache is needed here.
 function formatTagNames(names: string[]): string[] {
 	const seen = new Set<string>();
@@ -860,7 +869,7 @@ async function getAlbumsSection(userId: string): Promise<HomepageShelfItem[]> {
 
 	const localRows = await prisma.$queryRaw<any[]>`
 		SELECT
-			al.id, al.title, al.cover_url, ar.name as artist_name
+			al.id, al.title, al.cover_url, MAX(ar.name) as artist_name
 		 FROM albums al
 		 LEFT JOIN tracks t ON t.album_id = al.id
 		 LEFT JOIN artists ar ON ar.id = t.artist_id
@@ -1201,9 +1210,10 @@ export async function buildDynamicSearchSections(): Promise<{
 	categories: Array<{ title: string; items: string[] }>;
 }> {
 	const discoverItemsRaw = await prisma.$queryRaw<Array<{ title: string }>>`
-		SELECT DISTINCT title
+		SELECT title
 		 FROM playlists
-		 ORDER BY updated_at DESC
+		 GROUP BY title
+		 ORDER BY MAX(updated_at) DESC
 		 LIMIT 40`;
 	const discoverItems = ensureCount(
 		dedupeStrings(discoverItemsRaw.map((r) => r.title)).slice(

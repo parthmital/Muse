@@ -472,7 +472,7 @@ async function loadLocalPlaylist(
 	const aggregateRows = await prisma.$queryRaw<
 		Array<{ total: number; duration: number }>
 	>`
-		SELECT COUNT(*) as total, COALESCE(SUM(t.duration), 0) as duration
+		SELECT COUNT(*)::int as total, COALESCE(SUM(t.duration), 0)::int as duration
 		 FROM playlist_tracks pt
 		 LEFT JOIN tracks t ON t.id = pt.track_id
 		 WHERE pt.playlist_id = ${playlistId}`;

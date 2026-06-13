@@ -103,7 +103,7 @@ export async function buildProfile(
 		totalPlayCount: interactions.length,
 	};
 
-	// Persist to SQLite (upsert)
+	// Persist to the database (upsert)
 	const nowUnix = Math.floor(Date.now() / 1000);
 	const serializedGenres = toJson(preferredGenres);
 	await prisma.userProfile.upsert({

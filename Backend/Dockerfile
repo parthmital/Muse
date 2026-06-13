@@ -5,18 +5,11 @@
 # =============================================================================
 
 # ── Build stage ──────────────────────────────────────────────────────────────
-# better-sqlite3 is a native addon: it needs python3 + a C/C++ toolchain to
-# compile during `npm ci`. node:20-slim lacks these, so install build-essential.
+# Pure-JS dependency tree (the pg driver needs no native compilation), so the
+# slim image is enough — no build toolchain required.
 FROM node:20-slim AS build
 
 WORKDIR /app
-
-# Toolchain for native module compilation (better-sqlite3).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
-        python3 \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies first for better layer caching.
 COPY package.json package-lock.json ./
@@ -38,8 +31,8 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 # Copy only what's needed to run. node_modules from the build stage already
-# contains the compiled better-sqlite3 binary and the generated Prisma client,
-# so no recompilation/toolchain is required at runtime.
+# contains the generated Prisma client and the pure-JS pg driver, so no
+# recompilation/toolchain is required at runtime.
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
@@ -50,16 +43,12 @@ COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 
-# SQLite data directory (mount a volume here in production). The app creates it
-# on startup if missing; declaring it keeps the path explicit.
-RUN mkdir -p /app/data
-VOLUME ["/app/data"]
-
 EXPOSE 5000
 
-# The entrypoint runs `prisma db push` to create/sync the schema (a fresh volume
-# starts empty), then execs the command below. Worker overrides the command in
-# docker-compose; the entrypoint applies to both.
+# The entrypoint runs `prisma db push` to create/sync the schema against the
+# PostgreSQL server (a fresh database starts empty), then execs the command
+# below. Worker overrides the command in docker-compose; the entrypoint applies
+# to both.
 ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # Default: start the API server.

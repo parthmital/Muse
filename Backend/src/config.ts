@@ -24,7 +24,10 @@ export const config = {
 	jwtSecret: env("JWT_SECRET", "muse-dev-insecure-secret-change-me"),
 	jwtTtlSec: num("JWT_TTL_SEC", 60 * 60 * 24 * 30),
 
-	sqlitePath: env("SQLITE_PATH", "./data/music_rec.db"),
+	databaseUrl: env(
+		"DATABASE_URL",
+		"postgresql://postgres:postgres@localhost:5432/muse",
+	),
 
 	// Base URL of the hifi-api Python service (Tidal proxy). Defaults to its
 	// real local port (8000); docker-compose overrides this to the service name.

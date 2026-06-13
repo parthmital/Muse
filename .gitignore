@@ -14,12 +14,6 @@ out/
 .env.local
 .env.*.local
 
-# Database / Runtime Data
-data/
-*.db
-*.sqlite
-*.sqlite3
-
 # Python specific
 __pycache__/
 **/__pycache__/
