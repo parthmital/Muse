@@ -237,12 +237,7 @@ class LastFMClient {
 
 	async getTopTracks(
 		period:
-			| "overall"
-			| "7day"
-			| "1month"
-			| "3month"
-			| "6month"
-			| "12month" = "7day",
+			"overall" | "7day" | "1month" | "3month" | "6month" | "12month" = "7day",
 		limit = 50,
 	): Promise<LastFMTrack[]> {
 		const data = await this.call<{
@@ -253,12 +248,7 @@ class LastFMClient {
 
 	async getTopArtists(
 		period:
-			| "overall"
-			| "7day"
-			| "1month"
-			| "3month"
-			| "6month"
-			| "12month" = "7day",
+			"overall" | "7day" | "1month" | "3month" | "6month" | "12month" = "7day",
 		limit = 50,
 	): Promise<LastFMArtist[]> {
 		const data = await this.call<{

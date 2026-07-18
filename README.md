@@ -1,745 +1,1130 @@
 # Muse
 
-A self-hosted music streaming and discovery platform that combines Last.fm-powered recommendations with high-fidelity (lossless and Hi-Res) audio streaming.
+Muse is a self-hosted music streaming, library, playlist, and recommendation application. It has a Next.js frontend, a Fastify backend, a PostgreSQL database, a background worker, and a bundled Python FastAPI service named `hifi-api` for Tidal-compatible catalogue and stream access.
 
----
+The project is designed for local or self-managed deployment. Audio playback depends on the `hifi-api` service and valid Tidal-compatible authentication material. Personalised recommendations depend on Last.fm when `LASTFM_API_KEY` is configured.
 
-## Audience Navigation Guide
+## Table of Contents
 
-**For Recruiters**: Jump to [Overview](#overview), [Tech Stack](#tech-stack), and [System Architecture](#system-architecture) to understand the engineering scope and technical decisions.
+- [Quick Start](#quick-start)
+- [Project Overview](#project-overview)
+- [Problem Statement](#problem-statement)
+- [Project Goals](#project-goals)
+- [Key Features](#key-features)
+- [Supported Use Cases](#supported-use-cases)
+- [System Architecture](#system-architecture)
+- [Application Workflow](#application-workflow)
+- [Technology Stack](#technology-stack)
+- [Repository Structure](#repository-structure)
+- [Prerequisites](#prerequisites)
+- [Local Installation](#local-installation)
+- [Environment Configuration](#environment-configuration)
+- [Database Setup](#database-setup)
+- [Running the Application](#running-the-application)
+- [Available Scripts and Commands](#available-scripts-and-commands)
+- [API Documentation](#api-documentation)
+- [Authentication and Authorisation](#authentication-and-authorisation)
+- [Input Validation](#input-validation)
+- [Error Handling](#error-handling)
+- [Logging](#logging)
+- [Testing](#testing)
+- [Code Quality Checks](#code-quality-checks)
+- [Build Process](#build-process)
+- [Production Deployment](#production-deployment)
+- [CI Process](#ci-process)
+- [Security Considerations](#security-considerations)
+- [Performance Considerations](#performance-considerations)
+- [Monitoring and Maintenance](#monitoring-and-maintenance)
+- [Repository Metrics](#repository-metrics)
+- [Troubleshooting](#troubleshooting)
+- [Known Limitations](#known-limitations)
+- [Contribution Guidelines](#contribution-guidelines)
+- [Coding Standards](#coding-standards)
+- [Licence](#licence)
+- [Support and Contact](#support-and-contact)
 
-**For Developers**: See [Developer Guide](#developer-guide), [Core Workflows](#core-workflows), and [Project Structure](#project-structure) for implementation details.
+## Quick Start
 
-**For End Users**: Start with [How to Use](#how-to-use) and [Installation Guide](#installation-guide) to get the application running.
+These steps are for Windows PowerShell from the repository root, `D:\Downloads\Muse` or your own clone path.
 
-**For Contributors**: Read [Contribution Guide](#contribution-guide) and [Known Limitations](#known-limitations) before submitting changes.
+1. Install project dependencies.
 
----
+```powershell
+.\setup.ps1
+```
 
-## Overview
+This installs root, backend, and frontend npm dependencies. It also creates `hifi-api\.venv`, installs Python dependencies, and creates `Backend\.env` if it does not exist. The expected result is a final `Setup complete.` message.
 
-Muse is a full-stack music streaming application designed for personal use. It provides an interface similar to commercial streaming services, but runs entirely on your own computer or server.
+Common error: `python` or `npm` is not recognised. Install Python and Node.js, then reopen PowerShell.
 
-### For Non-Technical Readers
+2. Configure the backend.
 
-Muse lets you browse, search, and play music through a web browser. It learns your taste over time and suggests songs you may enjoy. You can sign up for an account, like songs, build your own playlists, save albums and artists to your library, and play music with a full player that supports a queue, radio, gapless playback, and crossfade. The interface includes a personalised homepage, artist pages, album pages, a search page, a discover page, and a player bar that stays at the bottom of the screen. On a phone, the layout changes to a mobile style with a bottom navigation bar, and the app can be installed to your home screen like a normal app.
+Edit `Backend\.env` and set at least these values when needed:
 
-### For Technical Readers
+```text
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/muse
+LASTFM_API_KEY=your_lastfm_api_key_here
+JWT_SECRET=replace-this-with-a-long-random-secret
+TIDAL_API_BASE_URL=http://localhost:8000
+```
 
-The system is built from four running processes plus a shared database:
+The expected result is that the backend can connect to PostgreSQL and can call the local `hifi-api` service.
 
-1. **API Server (Node.js + TypeScript)**: A Fastify REST API that handles authentication, user interactions, library and playlist management, recommendation generation, search, and proxying of the music service. PostgreSQL (through Prisma 7 with the pg driver adapter) is the primary datastore. The same database also holds a durable, leased job queue.
+Common error: `P1001` or connection errors from Prisma. Start PostgreSQL and confirm that `DATABASE_URL` points to an existing database.
 
-2. **Worker (Node.js + TypeScript)**: A separate process that polls the PostgreSQL job queue and runs background jobs for track enrichment, user profile rebuilding, and homepage shelf building.
+3. Authenticate `hifi-api` once.
 
-3. **Frontend (Next.js + React)**: A server-rendered React application using the App Router. Dash.js handles MPEG-DASH adaptive streaming, the Web Audio API handles loudness normalisation and crossfade, and TailwindCSS provides the styling. The frontend is also a Progressive Web App (PWA) with a service worker and an installable manifest.
+```powershell
+cd hifi-api
+.\.venv\Scripts\python.exe tidal_auth\tidal_auth.py
+cd ..
+```
 
-4. **hifi-api (Python + FastAPI)**: A vendored Python service that proxies the Tidal music catalogue and lossless streaming. It provides metadata, search, cover art, lyrics, and MPEG-DASH stream manifests. The Node.js API talks to this service over HTTP.
+This creates or updates `hifi-api\token.json`. The expected result is that `hifi-api` can request Tidal-compatible metadata and streams.
 
-The recommendation engine is powered by **Last.fm**. Personalised suggestions are generated from the user's listening seeds (recent plays, likes, and saved library tracks) through Last.fm's content-similarity endpoints (`track.getSimilar` and `artist.getSimilar` followed by `artist.getTopTracks`). Candidate tracks are mapped to playable Tidal tracks, de-duplicated, capped per artist for diversity, and ranked by Last.fm similarity and popularity. New users, who have no listening history, fall back to Last.fm charts.
+Common error: `token.json missing`. Run the command above again from the `hifi-api` directory.
 
----
+4. Start PostgreSQL.
+
+The default backend connection is:
+
+```text
+postgresql://postgres:postgres@localhost:5432/muse
+```
+
+The repository does not start a local PostgreSQL service in `start.ps1`. Use an installed PostgreSQL server, or use Docker Compose as described later.
+
+5. Run the application.
+
+```powershell
+.\start.ps1
+```
+
+This opens separate PowerShell windows for `hifi-api`, the backend API, the backend worker, and the frontend. The expected frontend URL is:
+
+```text
+http://localhost:3000
+```
+
+The expected backend API URL is:
+
+```text
+http://localhost:5000
+```
+
+The expected `hifi-api` URL is:
+
+```text
+http://localhost:8000
+```
+
+Common error: port already in use. Stop the process using the port or change `PORT`, `TIDAL_API_BASE_URL`, and `NEXT_PUBLIC_API_BASE_URL` consistently.
+
+## Project Overview
+
+Muse has four runtime processes and one database:
+
+- `Frontend`: Next.js App Router application for the web user interface.
+- `Backend`: Fastify REST API for authentication, user data, library, playlists, recommendations, settings, metrics, and hifi proxy routes.
+- `Backend worker`: TypeScript worker that processes durable jobs from PostgreSQL.
+- `hifi-api`: Python FastAPI service that talks to Tidal-compatible endpoints and returns catalogue, image, lyrics, and stream data.
+- `PostgreSQL`: Main database used by Prisma for users, tracks, albums, artists, interactions, queues, playlists, jobs, caches, and homepage shelves.
+
+The frontend calls the backend only. The backend calls `hifi-api`, Last.fm, MusicBrainz, and PostgreSQL.
 
 ## Problem Statement
 
-Commercial streaming services lock users into closed ecosystems with limited control over recommendations and no access to their own listening data. Self-hosted alternatives often lack a polished interface or intelligent discovery features.
+Music applications usually separate playback, recommendations, user data, and catalogue metadata across closed services. Muse brings these concerns into a self-hosted application so that the code, data model, recommendation logic, and operational behaviour can be inspected and changed.
 
-Muse addresses these gaps by providing:
+## Project Goals
 
-- Complete data ownership through a self-hosted PostgreSQL database
-- Transparent recommendation logic that can be inspected and modified
-- A responsive, modern interface comparable to commercial offerings, on both desktop and mobile
-- Integration with existing music metadata and streaming services (Tidal through the hifi-api service, Last.fm, and MusicBrainz)
-- No subscription fees and no vendor lock-in
-
----
+- Provide a browser-based music application with accounts, library, playlists, search, discovery, settings, and playback.
+- Store user history, settings, playlists, queues, recommendations, and caches in PostgreSQL.
+- Use Last.fm and MusicBrainz metadata to improve discovery and enrichment.
+- Proxy Tidal-compatible catalogue and stream access through a local Python service.
+- Keep recommendation, homepage, enrichment, and queue work visible in source code.
+- Support local development and Docker based deployment.
 
 ## Key Features
 
-### User-Facing Features
+- Email and password signup and login.
+- HS256 JWT session tokens.
+- Per-user settings for quality, data saver, gapless playback, automix, and explicit content.
+- Library actions for tracks, albums, artists, playlists, likes, and pins.
+- Playlist creation, deletion, and track management.
+- Search for tracks, artists, albums, and playlists through backend `/tidal` routes.
+- Personalised homepage shelves for artist mixes, genre mixes, albums, and artists.
+- Last.fm based recommendation engine using user seeds, similar tracks, similar artists, and chart fallbacks.
+- PostgreSQL backed queue and session state.
+- Background jobs for track enrichment, profile updates, and homepage building.
+- PWA manifest and service worker registration.
+- Player queue, shuffle, repeat, volume, lyrics, now playing, and keyboard shortcuts.
+- API health, metrics, and Swagger UI.
 
-- **User Accounts**: Sign up and log in with an email address and password (minimum 8 characters). Sessions are managed with JSON Web Tokens (JWT) that last 30 days by default. Each account has its own library, playlists, history, and recommendations.
-- **Personalised Homepage**: Dynamic shelves built from your listening history, including "Made For You" mixes, favourite artist recommendations, daily mixes, and discovery sections.
-- **High-Fidelity Audio Streaming**: MPEG-DASH adaptive streaming with seven selectable quality tiers: Automatic, Low (24 kbps), Normal (96 kbps), High (160 kbps), Very High (320 kbps), Lossless (24-bit / 48 kHz), and Hi-Res Lossless (24-bit / 192 kHz).
-- **Full Player**: A persistent player bar with play and pause, next and previous, seek, volume, shuffle, and repeat (off, all, one). A full-screen "Now Playing" view shows the queue and lyrics.
-- **Gapless Playback and Crossfade**: Tracks are prefetched and faded using the Web Audio API for smooth transitions, with an automix option.
-- **Volume Normalisation**: An optional loudness normalisation step (using a Web Audio compressor) keeps playback levels consistent across tracks.
-- **Smart Queue and Radio**: The playback queue holds 25 tracks by default and refills itself whenever it falls below 5 remaining, and radio mode generates continuous playback from a seed track using similarity-based selection.
-- **Library Management**: Like tracks, save albums and artists, create and manage playlists, and pin favourites to the sidebar.
-- **Search with History**: Live search across tracks, albums, artists, and playlists, debounced at 350 milliseconds with in-flight request cancellation, and a record of your recent searches (the last 10).
-- **Discover Page**: Browse by genre (sourced from Last.fm tags) and explore a global chart.
-- **Artist and Album Pages**: Artist pages show a biography, listener count, similar artists, and tabs for the artist's most played and popular tracks, albums, and singles. Album pages show the full tracklist.
-- **Context Menus**: Right-click (or long-press) actions for tracks, albums, and artists, including add to playlist, add to queue, like, save, pin, share, and go to artist.
-- **Settings**: Control streaming and download quality, data saver, gapless playback, automix, crossfade, volume normalisation, and explicit content.
-- **Mobile Experience and PWA**: A Spotify-style mobile layout with a bottom navigation bar on small screens, and installable to the home screen as a Progressive Web App.
-- **Keyboard Shortcuts**: Global hotkeys for common playback actions.
+## Supported Use Cases
 
-### Internal and Technical Features
-
-- **JWT Authentication**: Stateless session tokens signed with HMAC-SHA256 and valid for 30 days, with passwords hashed using scrypt (a per-user 16-byte salt and a 64-byte derived key), verified in constant time. No external authentication library is used.
-- **Last.fm Recommendation Engine**: Expands listening seeds through Last.fm content-similarity endpoints and blends the results with popularity and recency signals.
-- **Durable Background Job Queue**: A PostgreSQL-backed, leased, de-duplicated job queue polled every 500 milliseconds, running up to 4 jobs in parallel, with up to 3 attempts per job and exponential backoff (a 60-second base multiplied by the attempt number). Crashed worker jobs are automatically reclaimed after the 300-second lease expires.
-- **Three Background Job Types**: Track enrichment, user profile rebuilding, and homepage shelf building.
-- **Multi-Level Caching**: In-memory LRU caches sized for up to 10,000 user profiles (5-minute TTL), 50,000 recommendation result sets (2-minute TTL, served stale while rebuilding), and 100,000 playback sessions (3-hour TTL), plus Tidal lookups; a persistent PostgreSQL cache for Last.fm responses (30-day grace period); and a persistent Last.fm to Tidal entity-mapping cache (including a negative cache for entities confirmed not to exist on Tidal).
-- **Colour Extraction**: Vibrant colour extraction from album and artist artwork (using node-vibrant, jimp, and fast-average-color) for UI theming.
-- **Genre Preference Profiles**: Aggregates up to the 5,000 most recent interactions into weighted, recency-decayed genre preferences (the top 20 genres are kept) that drive personalised homepage sections.
-- **Artist-Diversity Re-ranking**: Caps the number of tracks per artist in a result set to balance similarity against variety.
-- **Metrics Endpoint**: An in-process metrics collector exposes request counts and per-route latency statistics (count, average, p50, p95, p99, and maximum) over a rolling reservoir of up to 1,000 samples per metric, with no external dependency.
-- **API Documentation**: Swagger UI is served for live exploration of the API.
-
----
-
-## Tech Stack
-
-### Backend API and Worker
-
-| Component        | Technology                             | Version             |
-| ---------------- | -------------------------------------- | ------------------- |
-| Runtime          | Node.js                                | 20+                 |
-| Language         | TypeScript                             | 5.4.5               |
-| Framework        | Fastify                                | 4.27.0              |
-| ORM              | Prisma                                 | 7.8.0               |
-| Database         | PostgreSQL                             | 16                  |
-| Database driver  | pg                                     | 8.13.1              |
-| Prisma adapter   | @prisma/adapter-pg                     | 7.8.0               |
-| Validation       | Zod                                    | 3.23.8              |
-| Logging          | Pino                                   | 9.2.0               |
-| Concurrency      | fastq, p-limit                         | 1.17.1, 5.0.0       |
-| In-memory cache  | lru-cache                              | 10.2.2              |
-| HTTP client      | axios                                  | 1.7.2               |
-| Image processing | node-vibrant, jimp, fast-average-color | 3.1.6, 1.6.0, 9.5.0 |
-| API docs         | @fastify/swagger, @fastify/swagger-ui  | 8.14.0, 4.0.0       |
-| Testing          | Vitest                                 | 4.1.8               |
-
-Authentication (JWT signing and verification, scrypt password hashing) is implemented directly with the Node.js standard library and needs no external package.
-
-### Frontend
-
-| Component     | Technology     | Version |
-| ------------- | -------------- | ------- |
-| Framework     | Next.js        | 16.1.6  |
-| UI Library    | React          | 19.2.3  |
-| Styling       | TailwindCSS    | 4.1.18  |
-| Data Fetching | SWR            | 2.4.1   |
-| Streaming     | Dash.js        | 4.7.4   |
-| Compiler      | React Compiler | 1.0.0   |
-
-The frontend also uses the browser-native Web Audio API for crossfade, gapless playback, and loudness normalisation, and registers a service worker for Progressive Web App support.
-
-### hifi-api (Tidal Proxy Service)
-
-| Component | Technology | Version |
-| --------- | ---------- | ------- |
-| Runtime   | Python     | 3.13    |
-| Framework | FastAPI    | 0.135.2 |
-| Server    | uvicorn    | 0.42.0  |
-| HTTP      | httpx      | 0.28.1  |
-
-### External Integrations
-
-- **Tidal** (through the bundled hifi-api service): Music catalogue, search, album artwork, lyrics, and lossless or Hi-Res streaming manifests.
-- **Last.fm**: Recommendations (similar tracks and artists), charts, artist and tag metadata, tags, and play counts.
-- **MusicBrainz**: Canonical artist and release identifiers, and genre data for enrichment.
-
----
+- Run a local self-hosted music web application.
+- Test recommendation logic against personal listening history.
+- Build and inspect a music catalogue database.
+- Develop a Next.js frontend against a Fastify API.
+- Run background enrichment and homepage jobs with PostgreSQL durability.
+- Explore backend endpoints through Swagger at `/docs`.
 
 ## System Architecture
 
-Muse runs as four processes that communicate over HTTP and a shared PostgreSQL database: the Node.js API server, the Node.js worker, the Python hifi-api service, and the Next.js frontend.
-
-### Component Interaction
-
-The **hifi-api service** runs on port 8000. It authenticates against Tidal once (storing a `token.json`) and then proxies catalogue metadata, search, cover art, lyrics, and streaming manifests.
-
-The **Node.js API Server** runs on port 5000 and is the primary backend. It handles authentication, all client requests, the PostgreSQL database, recommendation generation through Last.fm, and proxying of the hifi-api service. On startup it runs the Prisma schema sync, validates the hifi-api connection, and ensures a fallback development user exists.
-
-The **Worker Process** polls the PostgreSQL job queue every 500 milliseconds for `enrich_track`, `update_profile`, and `build_homepage` jobs, processing up to 4 at a time. Enrichment fetches Last.fm tags and MusicBrainz genre and identifiers; profile updates recompute the user's weighted genre preferences and then queue a homepage rebuild; homepage building writes fresh, personalised shelves to a persistent cache that stays fresh for 6 hours.
-
-The **Next.js Frontend** runs on port 3000 in development, or serves a built application in production. It communicates only with the Node.js API and renders server-side for initial page loads.
-
-### Data Flow
-
-When a user plays a track, the frontend sends an interaction event to the API. The API stores it in the `UserInteraction` table and, for high-signal events (for example, a play completed beyond 80 percent, or a like), schedules a profile update job. The worker recomputes the user's weighted, recency-decayed genre preferences (using a 30-day decay window) and then triggers a homepage rebuild.
-
-For recommendation generation, the API gathers the user's listening seeds from the database (up to 8 seed tracks and 4 seed artists), expands them through Last.fm's `track.getSimilar` and `artist.getSimilar` endpoints (requesting up to 30 similar items per seed), maps the resulting candidates to playable Tidal tracks (using the persistent Last.fm to Tidal mapping cache, with at most 44 Tidal lookups per request, resolved in batches of 5), filters out recently played items, caps results per artist for diversity, and ranks by Last.fm similarity plus popularity. Results are cached per surface for 2 minutes.
-
----
-
-## Project Structure
-
+```mermaid
+flowchart TD
+    Browser[Browser and PWA] --> Frontend[Next.js frontend on port 3000]
+    Frontend --> Backend[Fastify backend on port 5000]
+    Backend --> Postgres[(PostgreSQL database)]
+    Backend --> Hifi[hifi-api on port 8000]
+    Backend --> Lastfm[Last.fm API]
+    Backend --> MusicBrainz[MusicBrainz API]
+    Worker[Backend worker] --> Postgres
+    Worker --> Lastfm
+    Worker --> MusicBrainz
+    Worker --> Hifi
 ```
+
+### Runtime Flow
+
+1. The browser loads the Next.js app.
+2. The frontend stores a JWT in `localStorage` after login or signup.
+3. The frontend sends `Authorization: Bearer <token>` to the backend.
+4. The backend validates the token and resolves the user.
+5. Catalogue, image, lyrics, and stream requests are proxied through `/tidal/*`.
+6. The backend stores user interactions in PostgreSQL.
+7. High signal events enqueue background jobs.
+8. The worker claims jobs with leases and writes enriched data or homepage shelves back to PostgreSQL.
+
+## Application Workflow
+
+### Signup and Login
+
+1. The user submits email, password, and display name on the frontend.
+2. `POST /auth/signup` validates the body with Zod.
+3. The backend hashes the password with Node.js `crypto.scrypt`.
+4. The backend creates a user and returns a JWT.
+5. The frontend stores the token and redirects into the authenticated app.
+
+### Playback and Interaction
+
+1. The user chooses a track.
+2. The frontend calls `/tidal/tracks/:trackId/stream`.
+3. The backend calls `hifi-api` and extracts a stream URL from the response.
+4. The frontend plays the stream and reports interaction events.
+5. The backend records plays, skips, likes, saves, follows, and repeats.
+6. Strong events schedule profile and homepage rebuild jobs.
+
+### Recommendation Flow
+
+1. The backend gathers user seeds from interactions and saved library tracks.
+2. Last.fm expands seed tracks and artists into candidates.
+3. Candidates are resolved to playable Tidal-compatible tracks.
+4. Recently played and over-exposed items are filtered.
+5. Results are limited by surface and cached.
+6. If Last.fm or Tidal resolution is sparse, the backend falls back to chart or database popularity.
+
+## Technology Stack
+
+### Backend API and Worker
+
+| Technology  | Version              | Purpose                            | Location                                         |
+| ----------- | -------------------- | ---------------------------------- | ------------------------------------------------ |
+| Node.js     | 20 in CI and Docker  | Runtime for API and worker         | `.github/workflows/ci.yml`, `Backend/Dockerfile` |
+| TypeScript  | 5.4.5                | Backend source language            | `Backend/package.json`                           |
+| Fastify     | 4.27.0               | HTTP API server                    | `Backend/src/index.ts`                           |
+| Prisma      | 7.8.0                | Database client and schema tooling | `Backend/prisma/schema.prisma`                   |
+| PostgreSQL  | 16 in Docker Compose | Main database                      | `docker-compose.yml`                             |
+| `pg`        | 8.13.1               | PostgreSQL driver                  | `Backend/package.json`                           |
+| Zod         | 3.23.8               | Request body validation            | `Backend/src/api/*.ts`                           |
+| Pino        | 9.2.0                | Backend logging                    | `Backend/src/logger.ts`, `Backend/src/index.ts`  |
+| Vitest      | 4.1.8                | Backend test runner                | `Backend/vitest.config.ts`                       |
+| Axios       | 1.7.2                | HTTP client for external calls     | `Backend/src/services/*`                         |
+| `lru-cache` | 10.2.2               | In-memory TTL caches               | `Backend/src/cache/index.ts`                     |
+
+### Frontend
+
+| Technology            | Version | Purpose                           | Location                                            |
+| --------------------- | ------- | --------------------------------- | --------------------------------------------------- |
+| Next.js               | 16.1.6  | Frontend framework and App Router | `Frontend/package.json`                             |
+| React                 | 19.2.3  | UI library                        | `Frontend/package.json`                             |
+| Tailwind CSS          | 4.1.18  | Styling                           | `Frontend/package.json`, `Frontend/app/globals.css` |
+| SWR                   | 2.4.1   | Frontend data fetching cache      | `Frontend/package.json`                             |
+| Dash.js               | 4.7.4   | DASH playback support             | `Frontend/package.json`                             |
+| React Compiler plugin | 1.0.0   | React compiler support            | `Frontend/package.json`                             |
+
+### hifi-api
+
+| Technology    | Version           | Purpose                            | Location                    |
+| ------------- | ----------------- | ---------------------------------- | --------------------------- |
+| Python        | 3.13.10 in Docker | Runtime for Tidal-compatible proxy | `hifi-api/Dockerfile`       |
+| FastAPI       | 0.135.2           | Python API framework               | `hifi-api/requirements.txt` |
+| Uvicorn       | 0.42.0            | ASGI server                        | `hifi-api/requirements.txt` |
+| Hypercorn     | 0.18.0            | Alternative ASGI server dependency | `hifi-api/requirements.txt` |
+| HTTPX         | 0.28.1            | HTTP client                        | `hifi-api/requirements.txt` |
+| python-dotenv | 1.2.2             | `.env` loading                     | `hifi-api/requirements.txt` |
+
+## Repository Structure
+
+```text
 Muse/
-├── Backend/                              # Node.js API and worker
-│   ├── prisma/
-│   │   └── schema.prisma                 # PostgreSQL schema (19 models)
-│   ├── src/
-│   │   ├── api/                          # Fastify route handlers
-│   │   │   ├── actions.ts                # Toggle like / library / pin actions
-│   │   │   ├── auth.ts                   # Signup, login, current user
-│   │   │   ├── browse.ts                 # Search sections, recent searches, home
-│   │   │   ├── contextMenu.ts            # Item state for context menus
-│   │   │   ├── interactions.ts           # Play, skip, like, save events
-│   │   │   ├── lastfm.ts                 # Last.fm artist and tag routes
-│   │   │   ├── library.ts                # Library and playlist operations
-│   │   │   ├── recommendations.ts        # Recommendations, queue, radio, homepage
-│   │   │   ├── settings.ts               # User settings
-│   │   │   ├── tidal.ts                  # hifi-api proxy, search, images, streams
-│   │   │   ├── tracks.ts                 # Track ingest, metadata, enrichment
-│   │   │   └── users.ts                  # Profile, top tracks, top artists
-│   │   ├── cache/                        # In-memory LRU caches
-│   │   ├── db/
-│   │   │   ├── prisma.ts                 # Prisma client and pg adapter
-│   │   │   ├── helpers.ts                # JSON serialisation helpers
-│   │   │   └── repositories/             # Data access (users, jobs, catalog, etc.)
-│   │   ├── services/                     # Business logic layer
-│   │   │   ├── recommender.ts            # Last.fm recommendation engine
-│   │   │   ├── profileBuilder.ts         # Genre-preference profile construction
-│   │   │   ├── queueManager.ts           # Playback queue logic
-│   │   │   ├── homepageBuilder.ts        # Personalised shelf generation
-│   │   │   ├── homepageCache.ts          # Persistent homepage cache
-│   │   │   ├── hifiClient.ts             # hifi-api (Tidal) client
-│   │   │   ├── lastfmClient.ts           # Last.fm API client (Postgres-cached)
-│   │   │   ├── musicbrainzClient.ts      # MusicBrainz genre and id client
-│   │   │   ├── popularityService.ts      # Popularity scoring and Tidal resolution
-│   │   │   ├── serviceMapping.ts         # Last.fm to Tidal entity mapping cache
-│   │   │   ├── matching.ts               # Fuzzy and exact matching
-│   │   │   └── artistFilters.ts          # Compilation artist detection
-│   │   ├── workers/
-│   │   │   ├── runner.ts                 # Job queue poller
-│   │   │   └── jobs/                     # enrichTrack, updateProfile, buildHomepage
-│   │   ├── auth.ts                       # Request authentication hook
-│   │   ├── jwt.ts                        # JWT sign and verify (HS256)
-│   │   ├── password.ts                   # Scrypt password hashing
-│   │   ├── metrics.ts                    # Counters and latency percentiles
-│   │   ├── config.ts                     # Environment configuration
-│   │   └── index.ts                      # Application entry point
-│   ├── Dockerfile
-│   ├── docker-entrypoint.sh
-│   ├── package.json
-│   └── tsconfig.json
-├── Frontend/                             # Next.js application (App Router)
-│   ├── app/                              # App Router pages
-│   │   ├── login/                        # Login page
-│   │   ├── signup/                       # Account creation page
-│   │   ├── album/[id]/                   # Album detail page
-│   │   ├── artist/[id]/                  # Artist detail page
-│   │   ├── playlist/[id]/                # Playlist detail page
-│   │   ├── discover/                     # Discovery surface
-│   │   ├── library/                      # User library view
-│   │   ├── liked/                        # Liked songs page
-│   │   ├── search/                       # Search results
-│   │   ├── profile/                      # User profile
-│   │   ├── settings/                     # Application settings
-│   │   ├── manifest.ts                   # PWA manifest
-│   │   ├── layout.tsx                    # Root layout and providers
-│   │   ├── page.tsx                      # Homepage
-│   │   └── error.tsx                     # Error boundaries
-│   ├── components/                       # React components
-│   │   ├── ui/                           # Base UI components
-│   │   ├── Player.tsx                    # Player bar
-│   │   ├── NowPlaying.tsx                # Full-screen now playing view
-│   │   ├── QueuePanel.tsx                # Queue with drag to reorder
-│   │   ├── Lyrics.tsx                    # Lyrics panel
-│   │   ├── Sidebar.tsx                   # Desktop navigation sidebar
-│   │   ├── MobileNav.tsx                 # Mobile bottom navigation
-│   │   ├── TopBar.tsx                    # Desktop header and search
-│   │   ├── MediaCard.tsx                 # Album and artist cards
-│   │   ├── MediaShelf.tsx                # Horizontal scroll shelf
-│   │   ├── SongRow.tsx                   # Track list item
-│   │   ├── AuthGate.tsx                  # Authentication guard
-│   │   ├── GlobalHotkeys.tsx             # Keyboard shortcuts
-│   │   └── ...
-│   ├── context/                          # React contexts
-│   │   ├── AuthContext.tsx               # Authentication state
-│   │   ├── PlayerContext.tsx             # Playback state
-│   │   ├── ToastContext.tsx              # Notifications
-│   │   └── ActionMenuContext.tsx         # Context menus
-│   ├── hooks/                            # Custom React hooks
-│   ├── lib/                              # Utility functions
-│   ├── public/                           # Static assets and service worker
-│   ├── Dockerfile
-│   └── package.json
-├── hifi-api/                             # Python FastAPI Tidal proxy (vendored)
-│   ├── main.py                           # FastAPI application
-│   ├── tidal_auth/                       # One-time Tidal authentication
-│   │   └── tidal_auth.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── .github/workflows/ci.yml              # Continuous integration
-├── docker-compose.yml
-├── setup.ps1                             # Windows one-time setup
-├── start.ps1                             # Windows stack launcher
-├── package.json                          # Root orchestration scripts
-├── .gitignore
-└── .prettierrc.json
+|-- .github/
+|   `-- workflows/
+|       `-- ci.yml
+|-- Backend/
+|   |-- prisma/
+|   |   `-- schema.prisma
+|   |-- src/
+|   |   |-- api/
+|   |   |-- cache/
+|   |   |-- db/
+|   |   |-- services/
+|   |   |-- workers/
+|   |   |-- auth.ts
+|   |   |-- config.ts
+|   |   |-- index.ts
+|   |   |-- jwt.ts
+|   |   |-- logger.ts
+|   |   |-- metrics.ts
+|   |   `-- password.ts
+|   |-- .env.example
+|   |-- Dockerfile
+|   |-- docker-entrypoint.sh
+|   |-- eslint.config.mjs
+|   |-- package.json
+|   |-- prisma.config.ts
+|   |-- tsconfig.json
+|   `-- vitest.config.ts
+|-- Frontend/
+|   |-- app/
+|   |-- components/
+|   |-- context/
+|   |-- hooks/
+|   |-- lib/
+|   |-- public/
+|   |-- types/
+|   |-- utils/
+|   |-- Dockerfile
+|   |-- eslint.config.mjs
+|   |-- next.config.mjs
+|   |-- package.json
+|   |-- postcss.config.js
+|   `-- tsconfig.json
+|-- hifi-api/
+|   |-- tidal_auth/
+|   |-- tests/
+|   |-- .env.example
+|   |-- Dockerfile
+|   |-- docker-compose.yml
+|   |-- main.py
+|   |-- README.md
+|   `-- requirements.txt
+|-- .gitignore
+|-- .prettierrc.json
+|-- docker-compose.yml
+|-- package.json
+|-- setup.ps1
+`-- start.ps1
 ```
 
----
+Important paths:
 
-## Installation Guide
+- `Backend/src/api`: Fastify route handlers.
+- `Backend/src/services`: recommendation, homepage, matching, Last.fm, MusicBrainz, hifi, and queue logic.
+- `Backend/src/workers`: durable background worker and job handlers.
+- `Backend/prisma/schema.prisma`: PostgreSQL schema with 19 models.
+- `Frontend/app`: Next.js App Router pages.
+- `Frontend/components`: reusable UI and playback components.
+- `hifi-api/main.py`: Python FastAPI service consumed by the backend.
+- `docker-compose.yml`: full stack compose file for PostgreSQL, hifi-api, backend API, worker, and frontend.
 
-### Prerequisites
+## Prerequisites
 
-- Node.js 20 or later
-- PostgreSQL 14 or later (a running server the backend can connect to; `prisma db push` creates the schema on first start)
-- Python 3.11 or later (for the bundled `hifi-api/` service that proxies Tidal metadata and streaming)
-- A Tidal account (the `hifi-api` service authenticates against it; see step 3 below)
-- A Last.fm API key (required for recommendations and enrichment; obtain one at https://www.last.fm/api/account/create)
+For local PowerShell development:
 
-The `hifi-api/` directory is committed directly into this repository (it is vendored, not a submodule), so a plain `git clone` gives you everything you need.
+- Node.js and npm. The repository uses Node 20 in CI and Docker.
+- Python. The Docker image uses Python 3.13.10. The local setup script uses the `python` command available on your machine.
+- PostgreSQL reachable through `DATABASE_URL`.
+- A Last.fm API key for recommendations and enrichment.
+- Tidal-compatible authentication material for `hifi-api`.
 
-### Step-by-Step Setup
+For Docker deployment:
 
-1. **Clone the repository**
+- Docker and Docker Compose.
+- `Backend/.env`.
+- `hifi-api/token.json` or a valid `hifi-api/.env` available before the `hifi-api` image is built.
 
-   ```bash
-   git clone <repository-url>
-   cd Muse
-   ```
+Docker was not installed on the inspected machine, so Docker commands were verified from repository files and not executed locally.
 
-2. **Install all Node.js dependencies** (Backend and Frontend)
+## Local Installation
 
-   ```bash
-   npm run install:all
-   ```
+### PowerShell Setup Script
 
-   On Windows you can instead run `.\setup.ps1` from the repository root, which installs the Node.js dependencies, creates the Python virtual environment, and prepares the `Backend/.env` file.
+Run from the repository root:
 
-3. **Set up and authenticate the hifi-api service**
-
-   The Python service in `hifi-api/` provides Tidal metadata and streaming. Create a virtual environment, install its dependencies, and run the one-time Tidal login so it can store a `token.json`:
-
-   ```bash
-   cd hifi-api
-   python -m venv .venv
-   .venv/Scripts/activate        # Windows; use `source .venv/bin/activate` on macOS or Linux
-   pip install -r requirements.txt
-   pip install -r tidal_auth/requirements.txt
-   python tidal_auth/tidal_auth.py   # follow the device-login prompt once
-   cd ..
-   ```
-
-   On Windows, `.\setup.ps1` automates the virtual environment and authentication steps.
-
-4. **Configure Environment Variables**
-
-   Copy `Backend/.env.example` to `Backend/.env` and fill in the values marked REQUIRED. At a minimum you must set `LASTFM_API_KEY`, and a real `JWT_SECRET` for any shared deployment. The defaults assume the hifi-api service is on its standard port:
-
-   ```env
-   NODE_ENV=development
-   PORT=5000
-   API_BASE_URL=http://localhost:5000
-   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/muse
-   TIDAL_API_BASE_URL=http://localhost:8000
-   LASTFM_API_KEY=your_lastfm_key
-   JWT_SECRET=change-me-to-a-long-random-string
-   ```
-
-5. **Build the Frontend** (production only)
-
-   ```bash
-   npm --prefix Frontend run build
-   ```
-
----
-
-## How to Use
-
-### Starting the Services
-
-The simplest option is to launch the entire stack from the repository root:
-
-```bash
-npm run dev
+```powershell
+.\setup.ps1
 ```
 
-This runs the Prisma schema sync and then starts the hifi-api service, the API server, the worker, and the frontend together. If you do not need the hifi-api service in a given session, `npm run dev:core` starts only the API and the frontend.
+The script performs:
 
-On Windows, `.\start.ps1` opens each process in its own window.
+- `npm install` in the root.
+- `npm --prefix Backend install`.
+- `npm --prefix Frontend install`.
+- Python virtual environment creation under `hifi-api\.venv`.
+- Python dependency installation from `hifi-api\requirements.txt`.
+- Python dependency installation from `hifi-api\tidal_auth\requirements.txt`.
+- Creation of `Backend\.env` with a minimal backend configuration if missing.
 
-To run the components manually, use a separate terminal for each:
+### Manual Installation
 
-**Terminal 1 - hifi-api Service:**
+Run from the repository root:
 
-```bash
+```powershell
+npm install
+npm --prefix Backend install
+npm --prefix Frontend install
+```
+
+Then install Python dependencies:
+
+```powershell
 cd hifi-api
-.venv/Scripts/activate            # or `source .venv/bin/activate`
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r tidal_auth\requirements.txt
+cd ..
 ```
 
-**Terminal 2 - API Server:**
+## Environment Configuration
 
-```bash
-cd Backend
+### Backend Variables
+
+These variables are read by `Backend/src/config.ts` and documented in `Backend/.env.example`.
+
+| Variable                          | Required                          | Purpose                                | Expected format               | Safe example                                         | Default                              | Security notes                                                 |
+| --------------------------------- | --------------------------------- | -------------------------------------- | ----------------------------- | ---------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------- |
+| `NODE_ENV`                        | Optional                          | Runtime mode                           | `development` or `production` | `development`                                        | `development`                        | Production disables dev identity fallback.                     |
+| `PORT`                            | Optional                          | Backend API port                       | Number                        | `5000`                                               | `5000`                               | Must match frontend API base URL.                              |
+| `API_BASE_URL`                    | Optional                          | Public backend URL used for image URLs | URL                           | `http://localhost:5000`                              | `http://localhost:5000`              | Do not point clients at a private internal URL.                |
+| `LOG_LEVEL`                       | Optional                          | Pino log level                         | String                        | `info`                                               | `info`                               | Use `debug` carefully because DB query logging can be verbose. |
+| `DEV_USER_ID`                     | Optional                          | Development fallback user id           | String                        | `dev-user-001`                                       | `dev-user-001`                       | Used only outside production.                                  |
+| `JWT_SECRET`                      | Required for real deployment      | HS256 token signing secret             | Long random string            | `replace-with-long-random-value`                     | `muse-dev-insecure-secret-change-me` | The default is public and insecure.                            |
+| `JWT_TTL_SEC`                     | Optional                          | JWT lifetime in seconds                | Number                        | `2592000`                                            | `2592000`                            | Lower it for shorter sessions.                                 |
+| `DATABASE_URL`                    | Required                          | PostgreSQL connection                  | PostgreSQL URL                | `postgresql://postgres:postgres@localhost:5432/muse` | Same value                           | Contains credentials. Do not commit real values.               |
+| `TIDAL_API_BASE_URL`              | Optional                          | Base URL for `hifi-api`                | URL                           | `http://localhost:8000`                              | `http://localhost:8000`              | In Compose this is `http://hifi-api:8000`.                     |
+| `LASTFM_API_KEY`                  | Required for full recommendations | Last.fm API key                        | String                        | `your_lastfm_api_key_here`                           | Empty string                         | Do not commit a real key.                                      |
+| `MUSICBRAINZ_APP`                 | Optional                          | MusicBrainz User-Agent app string      | String                        | `MusicRecEngine/1.0`                                 | `MusicRecEngine/1.0`                 | Should identify the app politely.                              |
+| `QUEUE_SIZE`                      | Optional                          | Default recommendation queue length    | Number                        | `25`                                                 | `25`                                 | Used by queue manager.                                         |
+| `HOME_REC_COUNT`                  | Optional                          | Home recommendation count              | Number                        | `20`                                                 | `20`                                 | Used by recommender surfaces.                                  |
+| `MIX_TRACK_COUNT`                 | Optional                          | Tracks in recommendation mix surfaces  | Number                        | `30`                                                 | `30`                                 | Used by recommender surfaces.                                  |
+| `RECENCY_DECAY_DAYS`              | Optional                          | Profile recency decay window           | Number                        | `30`                                                 | `30`                                 | Affects genre profile weighting.                               |
+| `CACHE_PROFILE_TTL_MS`            | Optional                          | Profile cache TTL                      | Milliseconds                  | `300000`                                             | `300000`                             | In-memory only.                                                |
+| `CACHE_REC_TTL_MS`                | Optional                          | Recommendation cache TTL               | Milliseconds                  | `120000`                                             | `120000`                             | Stale results may be served while rebuilding.                  |
+| `WORKER_POLL_MS`                  | Optional                          | Worker polling interval                | Milliseconds                  | `500`                                                | `500`                                | Lower values increase DB polling.                              |
+| `WORKER_CONCURRENCY`              | Optional                          | Worker parallel job limit              | Number                        | `4`                                                  | `4`                                  | Used by `p-limit`.                                             |
+| `JOB_MAX_ATTEMPTS`                | Optional                          | Max job attempts                       | Number                        | `3`                                                  | `3`                                  | Failed jobs become terminal after this.                        |
+| `JOB_RETRY_BASE_SEC`              | Optional                          | Job retry base backoff                 | Seconds                       | `60`                                                 | `60`                                 | Backoff is attempt count times this value.                     |
+| `JOB_LEASE_SEC`                   | Optional                          | Job lease before reclaim               | Seconds                       | `300`                                                | `300`                                | Protects against stranded running jobs.                        |
+| `JOB_CLEANUP_INTERVAL_MS`         | Optional                          | Maintenance cleanup interval           | Milliseconds                  | `3600000`                                            | `3600000`                            | Worker cleanup cadence.                                        |
+| `LASTFM_CACHE_GRACE_DAYS`         | Optional                          | Last.fm stale cache retention          | Days                          | `30`                                                 | `30`                                 | Stale rows can be served on rate limits.                       |
+| `SHELF_IMPRESSION_RETENTION_DAYS` | Optional                          | Shelf impression retention             | Days                          | `90`                                                 | `90`                                 | Used to suppress over-exposed items.                           |
+| `QUEUE_LOW_WATER_MARK`            | Optional                          | Queue refill threshold                 | Number                        | `5`                                                  | `5`                                  | Queue refills when below this count.                           |
+| `SESSION_TTL_MS`                  | Optional                          | Playback session queue TTL             | Milliseconds                  | `10800000`                                           | `10800000`                           | 3 hours by default.                                            |
+| `PLAYED_IDS_HISTORY_CAP`          | Optional                          | Stored played ids per session          | Number                        | `200`                                                | `200`                                | Limits session payload size.                                   |
+| `HIGH_SIGNAL_COMPLETION_RATIO`    | Optional                          | Completion ratio for profile update    | Decimal                       | `0.8`                                                | `0.8`                                | Used by playback queue update.                                 |
+| `SEED_TRACK_CAP`                  | Optional                          | Max seed tracks                        | Number                        | `8`                                                  | `8`                                  | Used for Last.fm similar track expansion.                      |
+| `SEED_ARTIST_CAP`                 | Optional                          | Max seed artists                       | Number                        | `4`                                                  | `4`                                  | Used for Last.fm similar artist expansion.                     |
+| `SIMILAR_PER_TRACK`               | Optional                          | Similar tracks per seed                | Number                        | `30`                                                 | `30`                                 | Used by Last.fm calls.                                         |
+| `MAX_TIDAL_LOOKUPS`               | Optional                          | Candidate Tidal resolution cap         | Number                        | `44`                                                 | `44`                                 | Limits external calls per recommendation request.              |
+| `TIDAL_RESOLVE_BATCH`             | Optional                          | Tidal lookup batch size                | Number                        | `5`                                                  | `5`                                  | Controls concurrent resolution batches.                        |
+| `PROFILE_MAX_GENRES`              | Optional                          | Max stored profile genres              | Number                        | `20`                                                 | `20`                                 | Used by profile builder.                                       |
+| `PROFILE_INTERACTION_LIMIT`       | Optional                          | Interactions used to build profile     | Number                        | `5000`                                               | `5000`                               | Higher values increase profile query work.                     |
+| `SECTION_ITEM_COUNT`              | Optional                          | Items per homepage section             | Number                        | `10`                                                 | `10`                                 | Used by homepage builder.                                      |
+| `COLLECTION_TRACK_COUNT`          | Optional                          | Tracks per generated collection        | Number                        | `50`                                                 | `50`                                 | Used by system mixes and playlists.                            |
+| `HOMEPAGE_FRESH_SEC`              | Optional                          | Homepage cache freshness               | Seconds                       | `21600`                                              | `21600`                              | 6 hours by default.                                            |
+| `TRACK_POOL_SIZE`                 | Optional                          | Minimum homepage track pool            | Number                        | `180`                                                | `180`                                | Used by homepage builder.                                      |
+
+### Frontend Variables
+
+| Variable                   | Required           | Purpose                                                    | Expected format               | Safe example            | Default                 | Security notes                                 |
+| -------------------------- | ------------------ | ---------------------------------------------------------- | ----------------------------- | ----------------------- | ----------------------- | ---------------------------------------------- |
+| `NEXT_PUBLIC_API_BASE_URL` | Optional           | Backend URL used by browser-side frontend calls            | URL                           | `http://localhost:5000` | `http://localhost:5000` | Public because it is bundled into client code. |
+| `NODE_ENV`                 | Managed by Next.js | Controls production checks and service worker registration | `development` or `production` | `production`            | Set by runtime          | Do not use it for secrets.                     |
+
+### hifi-api Variables
+
+These are read by `hifi-api/main.py` and `hifi-api/tidal_auth/tidal_auth.py`.
+
+| Variable                        | Required                        | Purpose                                       | Expected format | Safe example               | Default        | Security notes                                  |
+| ------------------------------- | ------------------------------- | --------------------------------------------- | --------------- | -------------------------- | -------------- | ----------------------------------------------- |
+| `CLIENT_ID`                     | Optional if `token.json` exists | Tidal-compatible client id                    | String          | Empty for token-file setup | Empty          | Treat real values as credentials.               |
+| `CLIENT_SECRET`                 | Optional if `token.json` exists | Tidal-compatible client secret                | String          | Empty for token-file setup | Empty          | Secret. Do not commit.                          |
+| `USER_ID`                       | Optional if `token.json` exists | Tidal-compatible user id                      | String          | Empty for token-file setup | Empty          | Do not commit personal ids.                     |
+| `REFRESH_TOKEN`                 | Optional if `token.json` exists | Refresh token                                 | String          | Empty for token-file setup | Empty          | Secret. Do not commit.                          |
+| `TOKEN_FILE`                    | Optional                        | Token file path                               | File path       | `token.json`               | `token.json`   | Keep token files out of git.                    |
+| `COUNTRY_CODE`                  | Optional                        | Country code for upstream requests            | Two-letter code | `US`                       | `US`           | May affect catalogue availability.              |
+| `USE_PROXIES`                   | Optional                        | Enable proxy support                          | Boolean string  | `False`                    | `False`        | Only use trusted proxies.                       |
+| `ROTATE_PROXIES_ON_REFRESH`     | Optional                        | Rotate proxy during token refresh             | Boolean string  | `False`                    | `False`        | Only use trusted proxies.                       |
+| `PROXIES_FILE`                  | Optional                        | Proxy list file                               | File path       | `proxies.txt`              | `proxies.txt`  | May contain proxy credentials.                  |
+| `MAX_RETRIES`                   | Optional                        | Retry count                                   | Number          | `2`                        | `2`            | Higher values increase upstream retries.        |
+| `FALLBACK_TO_DIRECT_CONNECTION` | Optional                        | Fall back to direct network when proxies fail | Boolean string  | `False`                    | `False`        | Can expose host IP if set to true.              |
+| `USER_AGENT`                    | Optional                        | Upstream User-Agent value                     | String          | `okhttp/5.3.2`             | `okhttp/5.3.2` | Do not use personal data.                       |
+| `DEV_MODE`                      | Optional                        | Verbose upstream logging                      | Boolean string  | `False`                    | `False`        | Can log headers and bodies. Avoid with secrets. |
+
+## Database Setup
+
+The database schema is defined in `Backend/prisma/schema.prisma`. It uses PostgreSQL and 19 Prisma models.
+
+For local development, create or provide a PostgreSQL database that matches `DATABASE_URL`.
+
+To push the Prisma schema after PostgreSQL is reachable:
+
+```powershell
+npm --prefix Backend run db:push
+```
+
+This command runs `prisma db push` from the backend package. It creates or synchronises the schema. It was not executed during README generation because it requires a running database and can modify schema state.
+
+In Docker, `Backend/docker-entrypoint.sh` runs:
+
+```sh
+npx prisma db push
+```
+
+before starting the API or worker.
+
+## Running the Application
+
+### Full Local Stack With PowerShell Windows
+
+Run from the repository root:
+
+```powershell
+.\start.ps1
+```
+
+This starts:
+
+- `hifi-api` on `127.0.0.1:8000`, only if `hifi-api\.venv` and `hifi-api\token.json` exist.
+- Backend API on port `5000`.
+- Backend worker.
+- Frontend on port `3000`.
+
+### Root npm Development Script
+
+Run from the repository root:
+
+```powershell
 npm run dev
 ```
 
-**Terminal 3 - Worker Process:**
+This runs `Backend` schema push and then starts `hifi-api`, backend API, worker, and frontend through `concurrently`. This script uses a Windows virtual environment path for Python:
 
-```bash
-cd Backend
-npm run worker
+```text
+hifi-api\.venv\Scripts\python.exe
 ```
 
-**Terminal 4 - Frontend (Development):**
+### Core Development Without hifi-api and Worker
 
-```bash
-cd Frontend
-npm run dev
+Run from the repository root:
+
+```powershell
+npm run dev:core
 ```
 
-Then open `http://localhost:3000` in your browser.
+This starts only the backend API and frontend after running the backend schema push.
 
-### Using the Application
+## Available Scripts and Commands
 
-1. **Create an Account**: On first use, sign up with your email address and a password (minimum eight characters), or log in if you already have an account.
+### Root Scripts
 
-2. **Browse Music**: The homepage displays personalised shelves. Click any album or artist card to view its details.
+| Command               | Run from        | Purpose                                                              |
+| --------------------- | --------------- | -------------------------------------------------------------------- |
+| `npm run dev`         | Repository root | Push schema, then start hifi-api, backend API, worker, and frontend. |
+| `npm run dev:core`    | Repository root | Push schema, then start backend API and frontend only.               |
+| `npm run build`       | Repository root | Build backend and frontend.                                          |
+| `npm test`            | Repository root | Run backend tests.                                                   |
+| `npm run lint`        | Repository root | Run backend and frontend lint.                                       |
+| `npm run typecheck`   | Repository root | Run backend type checking only.                                      |
+| `npm run install:all` | Repository root | Install backend and frontend dependencies.                           |
 
-3. **Play Music**: Click the play button on any track. The persistent player bar at the bottom shows the current track and controls. Open the full-screen "Now Playing" view to see the queue and lyrics.
+### Backend Scripts
 
-4. **Create Playlists**: Right-click a track and select "Add to Playlist", or use the library page to create new playlists.
+| Command                                | Run from        | Purpose                                                                      |
+| -------------------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| `npm --prefix Backend run dev`         | Repository root | Start backend API with `tsx watch`.                                          |
+| `npm --prefix Backend run predev`      | Repository root | Run `prisma db push`; npm also runs this automatically before backend `dev`. |
+| `npm --prefix Backend run worker`      | Repository root | Start backend worker with `tsx watch`.                                       |
+| `npm --prefix Backend run start`       | Repository root | Start compiled backend from `dist/index.js`.                                 |
+| `npm --prefix Backend run build`       | Repository root | Generate Prisma client and compile TypeScript.                               |
+| `npm --prefix Backend run db:push`     | Repository root | Push Prisma schema to PostgreSQL.                                            |
+| `npm --prefix Backend run db:generate` | Repository root | Generate Prisma client.                                                      |
+| `npm --prefix Backend run db:studio`   | Repository root | Open Prisma Studio.                                                          |
+| `npm --prefix Backend run regen:mixes` | Repository root | Run system mix regeneration script.                                          |
+| `npm --prefix Backend test`            | Repository root | Run Vitest once.                                                             |
+| `npm --prefix Backend run test:watch`  | Repository root | Run Vitest in watch mode.                                                    |
+| `npm --prefix Backend run lint`        | Repository root | Run ESLint on backend source.                                                |
+| `npm --prefix Backend run typecheck`   | Repository root | Run `tsc --noEmit`.                                                          |
 
-5. **Like Songs and Save Items**: Click the heart icon on any track to add it to your liked songs, and save albums or artists to your library. Pin items to keep them at the top of the sidebar.
+### Frontend Scripts
 
-6. **Search**: Use the search bar to find tracks, albums, artists, and playlists. Your recent searches are remembered.
+| Command                           | Run from        | Purpose                      |
+| --------------------------------- | --------------- | ---------------------------- |
+| `npm --prefix Frontend run dev`   | Repository root | Start Next.js dev server.    |
+| `npm --prefix Frontend run build` | Repository root | Build the Next.js app.       |
+| `npm --prefix Frontend run start` | Repository root | Serve the built Next.js app. |
+| `npm --prefix Frontend run lint`  | Repository root | Run frontend ESLint.         |
 
-7. **Discover**: Visit the discover page to browse by genre and explore the global chart.
+## API Documentation
 
-8. **Adjust Settings**: Open settings to change streaming and download quality, gapless playback, crossfade, automix, volume normalisation, data saver, and explicit content options.
+Swagger UI is registered at:
 
----
+```text
+http://localhost:5000/docs
+```
 
-## Developer Guide
+The backend exposes 57 Fastify method routes. Routes use JSON unless they return image bytes.
 
-### Running Locally
+### Common Headers
 
-The development setup runs four processes. The root `npm run dev` starts them together using `concurrently`; you can also run each manually as shown above.
+| Header                           | Required                              | Purpose                                                                         |
+| -------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------- |
+| `Content-Type: application/json` | Required for JSON bodies              | Parses request bodies.                                                          |
+| `Authorization: Bearer <token>`  | Required for authenticated user flows | Identifies the logged-in user.                                                  |
+| `x-user-id: <userId>`            | Development only                      | Used only when `NODE_ENV` is not `production` and no valid bearer token exists. |
 
-Recommended workflow:
+### Auth Routes
 
-1. Start the hifi-api service (the Node API validates this connection on startup)
-2. Start the API server (its `predev` hook runs `prisma db push` to sync the schema)
-3. Start the worker (it begins polling for jobs)
-4. Start the frontend (it talks to the API)
+| Method | Route          | Purpose             | Body or query                      | Main success response | Error status |
+| ------ | -------------- | ------------------- | ---------------------------------- | --------------------- | ------------ |
+| `POST` | `/auth/signup` | Create account      | `email`, `password`, `displayName` | `201`, token and user | `400`, `409` |
+| `POST` | `/auth/login`  | Login               | `email`, `password`                | token and user        | `400`, `401` |
+| `GET`  | `/auth/me`     | Return current user | Bearer token                       | `{ user }`            | `401`        |
 
-### Development Commands
+Example signup:
 
-Run these from the `Backend` directory unless noted:
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:5000/auth/signup -ContentType application/json -Body '{"email":"dev@example.com","password":"password123","displayName":"Dev User"}'
+```
 
-| Command                   | Purpose                                            |
-| ------------------------- | -------------------------------------------------- |
-| `npm run dev`             | Start the API server with hot reload               |
-| `npm run worker`          | Start the job queue processor                      |
-| `npm run build`           | Generate the Prisma client and compile TypeScript  |
-| `npm run db:push`         | Sync the Prisma schema to PostgreSQL               |
-| `npm run db:studio`       | Open Prisma Studio to inspect the database         |
-| `npm test`                | Run the Vitest test suite                          |
-| `npm run lint`            | Run ESLint                                         |
-| `npm run typecheck`       | Type-check without emitting                        |
-| `npm run dev` (root)      | Start hifi-api, API, worker, and frontend together |
-| `npm run dev:core` (root) | Start only the API and the frontend                |
+### User and Recommendation Routes
 
-### Code Organisation Principles
+| Method | Route                            | Purpose                                                        | Body or query                                | Auth                        |
+| ------ | -------------------------------- | -------------------------------------------------------------- | -------------------------------------------- | --------------------------- |
+| `GET`  | `/users/:userId/profile`         | Get stored user profile                                        | Path `userId`                                | User must exist             |
+| `POST` | `/users/:userId/profile/rebuild` | Rebuild profile inline                                         | Path `userId`                                | User must exist             |
+| `GET`  | `/users/:userId/top-tracks`      | Get top tracks                                                 | Optional `limit`, max 50                     | Owner                       |
+| `GET`  | `/users/:userId/top-artists`     | Get top artists                                                | Optional `limit`, max 50                     | Owner                       |
+| `GET`  | `/users/:userId/recommendations` | Get recommendations                                            | `surface`, `seedTrackId`, `limit`            | User must exist             |
+| `GET`  | `/users/:userId/radio/seeds`     | Pick radio seeds                                               | Path `userId`                                | User must exist             |
+| `POST` | `/users/:userId/queue/init`      | Start a playback queue                                         | Query `sessionId`, optional `seedTrackId`    | User must exist             |
+| `POST` | `/users/:userId/queue/update`    | Update queue after playback                                    | `sessionId`, `currentTrackId`, `playedRatio` | User must exist             |
+| `GET`  | `/users/:userId/queue`           | Read queue                                                     | Query `sessionId`                            | Session id required         |
+| `GET`  | `/users/:userId/homepage`        | Get personalised homepage                                      | Path `userId`                                | User id path                |
+| `GET`  | `/users/:userId/homepage/debug`  | Debug homepage shelf counts                                    | Path `userId`                                | User id path                |
+| `POST` | `/users/:userId/interactions`    | Record play, skip, like, save, follow, playlist add, or repeat | Interaction body                             | Auto-creates user if absent |
 
-- **API Routes**: Each domain has its own route file in `src/api/`. Routes handle HTTP and authorisation concerns only and delegate to services and repositories.
-- **Services**: Business logic lives in `src/services/`. Services have no HTTP knowledge.
-- **Repositories**: All database access is centralised in `src/db/repositories/`.
-- **Database**: PostgreSQL is accessed through Prisma with the pg driver adapter. The schema lives in `Backend/prisma/schema.prisma`, and `prisma db push` syncs it (run automatically by the `predev` script locally and by the Docker entrypoint).
-- **Workers**: Jobs are idempotent and can be retried. Each job type has a handler in `src/workers/jobs/`.
+### Library and Playlist Routes
 
----
+| Method   | Route                            | Purpose                     | Body or query                   | Auth                    |
+| -------- | -------------------------------- | --------------------------- | ------------------------------- | ----------------------- |
+| `GET`    | `/library`                       | List current user's library | None                            | Current user            |
+| `POST`   | `/library`                       | Add library item            | `itemType`, `itemId`            | Current user            |
+| `DELETE` | `/library`                       | Remove library item         | `itemType`, `itemId`            | Current user            |
+| `GET`    | `/playlists`                     | List playlists              | None                            | Current user            |
+| `POST`   | `/playlists`                     | Create playlist             | `title`, optional `description` | Current user            |
+| `DELETE` | `/playlists/:id`                 | Delete playlist             | Path `id`                       | Current user            |
+| `GET`    | `/playlists/:id/tracks`          | List playlist tracks        | Path `id`                       | No owner check in route |
+| `POST`   | `/playlists/:id/tracks`          | Add track to playlist       | `trackId`                       | Playlist owner          |
+| `DELETE` | `/playlists/:id/tracks/:trackId` | Remove track from playlist  | Path `id`, `trackId`            | Playlist owner          |
 
-## Configuration Guide
+### Browse, Action, and Settings Routes
 
-### Environment Variables
+| Method | Route                           | Purpose                                                        | Body or query                                         | Auth                                   |
+| ------ | ------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------- |
+| `GET`  | `/browse/search-sections`       | Build browse sections                                          | None                                                  | Current identity used for context only |
+| `GET`  | `/browse/search-sections/debug` | Verify browse section counts                                   | None                                                  | Current identity used for context only |
+| `GET`  | `/browse/recent-searches`       | Read last 10 searches                                          | None                                                  | Current user                           |
+| `POST` | `/browse/searches`              | Save search history                                            | `query`, `itemType`, `itemId`, `imageUrl`, `metadata` | Current user                           |
+| `GET`  | `/browse/home`                  | Get homepage shelves                                           | None                                                  | Current user                           |
+| `POST` | `/actions/:action`              | Toggle like, library, pin, or return placeholder action result | `userId`, `type`, `id`                                | Owner                                  |
+| `GET`  | `/context-menu/:type/:id`       | Get item library and pin state                                 | Query `userId`                                        | Owner                                  |
+| `GET`  | `/settings`                     | Read settings                                                  | None                                                  | Authenticated user                     |
+| `PUT`  | `/settings`                     | Update settings                                                | Settings patch body                                   | Authenticated user                     |
 
-The most commonly changed variables are listed below. The full list, with comments, is in `Backend/.env.example`.
+### Track and Metadata Routes
 
-| Variable               | Default                                              | Description                                        |
-| ---------------------- | ---------------------------------------------------- | -------------------------------------------------- |
-| `NODE_ENV`             | `development`                                        | Runtime environment                                |
-| `PORT`                 | `5000`                                               | API server port                                    |
-| `API_BASE_URL`         | `http://localhost:5000`                              | Public API URL                                     |
-| `LOG_LEVEL`            | `info`                                               | Pino log level                                     |
-| `DATABASE_URL`         | `postgresql://postgres:postgres@localhost:5432/muse` | PostgreSQL connection string                       |
-| `TIDAL_API_BASE_URL`   | `http://localhost:8000`                              | hifi-api service base URL                          |
-| `LASTFM_API_KEY`       | _(none)_                                             | Last.fm API key (recommendations and enrichment)   |
-| `MUSICBRAINZ_APP`      | `MusicRecEngine/1.0`                                 | MusicBrainz User-Agent app string                  |
-| `DEV_USER_ID`          | `dev-user-001`                                       | Development-only fallback identity (no token)      |
-| `JWT_SECRET`           | _(insecure default; set in prod)_                    | HMAC secret for signing session tokens             |
-| `JWT_TTL_SEC`          | `2592000`                                            | Session token lifetime (30 days)                   |
-| `JOB_MAX_ATTEMPTS`     | `3`                                                  | Maximum retries per background job                 |
-| `JOB_RETRY_BASE_SEC`   | `60`                                                 | Base backoff between job retries                   |
-| `JOB_LEASE_SEC`        | `300`                                                | Job lease before reclaiming a crashed worker's job |
-| `WORKER_POLL_MS`       | `500`                                                | Job polling interval                               |
-| `WORKER_CONCURRENCY`   | `4`                                                  | Parallel job limit                                 |
-| `QUEUE_SIZE`           | `25`                                                 | Default queue length                               |
-| `QUEUE_LOW_WATER_MARK` | `5`                                                  | Refill the queue when it falls below this          |
-| `HOME_REC_COUNT`       | `20`                                                 | Recommendations per shelf                          |
-| `MIX_TRACK_COUNT`      | `30`                                                 | Tracks per generated mix                           |
-| `RECENCY_DECAY_DAYS`   | `30`                                                 | History decay period                               |
-| `CACHE_PROFILE_TTL_MS` | `300000`                                             | Profile cache TTL (5 minutes)                      |
-| `CACHE_REC_TTL_MS`     | `120000`                                             | Recommendation cache TTL (2 minutes)               |
-| `HOMEPAGE_FRESH_SEC`   | `21600`                                              | Homepage cache freshness window (6 hours)          |
+| Method | Route                          | Purpose                                                       | Body or query     | Error status |
+| ------ | ------------------------------ | ------------------------------------------------------------- | ----------------- | ------------ |
+| `POST` | `/tracks/ingest`               | Fetch and persist tracks from hifi-api                        | `trackIds` array  | `400`        |
+| `GET`  | `/tracks/:trackId`             | Read raw stored track and features                            | Path `trackId`    | `404`        |
+| `POST` | `/tracks/:trackId/enrich`      | Queue enrichment for one track                                | Path `trackId`    | `404`        |
+| `GET`  | `/lastfm/artist/:artistName`   | Fetch Last.fm artist info and Tidal-validated similar artists | Path `artistName` | `404`, `502` |
+| `GET`  | `/lastfm/tag/:tagName`         | Fetch Last.fm tag info                                        | Path `tagName`    | `404`, `502` |
+| `GET`  | `/lastfm/tag/:tagName/similar` | Fetch similar Last.fm tags                                    | Optional `limit`  | `502`        |
 
-Additional tuning variables control recommender behaviour (`SEED_TRACK_CAP`, `SEED_ARTIST_CAP`, `SIMILAR_PER_TRACK`, `MAX_TIDAL_LOOKUPS`, `TIDAL_RESOLVE_BATCH`, `PROFILE_MAX_GENRES`), session handling (`SESSION_TTL_MS`, `PLAYED_IDS_HISTORY_CAP`, `HIGH_SIGNAL_COMPLETION_RATIO`), and homepage building (`SECTION_ITEM_COUNT`, `COLLECTION_TRACK_COUNT`, `TRACK_POOL_SIZE`).
+### Tidal Proxy Routes
 
----
+| Method | Route                                    | Purpose                                   | Body or query                                    | Error status                     |
+| ------ | ---------------------------------------- | ----------------------------------------- | ------------------------------------------------ | -------------------------------- |
+| `GET`  | `/tidal/genres`                          | Return genre tags                         | Optional `limit`, max 30                         | Returns empty list on failure    |
+| `GET`  | `/tidal/genre-albums`                    | Return albums for tag or global chart     | Optional `tag`, `limit`, max 50                  | Returns empty list on failure    |
+| `GET`  | `/tidal/images/:pictureId`               | Proxy image bytes and extract colour      | `size`, `type`                                   | `404`                            |
+| `GET`  | `/tidal/images/:pictureId/color`         | Return extracted colour                   | `mode`, `size`, `type`                           | Returns `null` colour on failure |
+| `GET`  | `/tidal/search`                          | Search one type                           | Required `q`, optional `type`, `limit`, `offset` | `400`, `502`                     |
+| `GET`  | `/tidal/search/all`                      | Search tracks, artists, albums, playlists | Required `q`, optional `limit`                   | `400`, `502`                     |
+| `GET`  | `/tidal/tracks/:trackId`                 | Fetch track metadata                      | Path `trackId`                                   | `404`, `502`                     |
+| `GET`  | `/tidal/tracks/:trackId/stream`          | Fetch stream manifest and stream URL      | Optional `quality`                               | `502`                            |
+| `GET`  | `/tidal/tracks/:trackId/recommendations` | Fetch Tidal-native related tracks         | Path `trackId`                                   | `502`                            |
+| `GET`  | `/tidal/albums/:albumId`                 | Fetch album and tracks                    | `limit`, `offset`                                | `502`                            |
+| `GET`  | `/tidal/artists/:artistId`               | Fetch artist, albums, and top tracks      | Path `artistId`                                  | `502`                            |
+| `GET`  | `/tidal/artists/:artistId/similar`       | Fetch similar artists                     | Path `artistId`                                  | `502`                            |
+| `GET`  | `/tidal/albums/:albumId/similar`         | Fetch similar albums                      | Path `albumId`                                   | `502`                            |
+| `GET`  | `/tidal/playlists/:playlistId`           | Fetch local, system, or external playlist | `limit`, `offset`                                | `502`                            |
+| `GET`  | `/tidal/mixes/:mixId`                    | Fetch local or external mix               | Path `mixId`                                     | `502`                            |
+| `GET`  | `/tidal/health`                          | Check hifi-api reachability               | None                                             | `503`                            |
 
-## Core Workflows
+### Infrastructure Routes
 
-### Track Playback Flow
+| Method | Route      | Purpose                                     | Response                       |
+| ------ | ---------- | ------------------------------------------- | ------------------------------ |
+| `GET`  | `/health`  | Backend liveness                            | `{ "status": "ok" }`           |
+| `GET`  | `/metrics` | In-process counters and latency percentiles | JSON object of numeric metrics |
+| `GET`  | `/docs`    | Swagger UI                                  | HTML UI                        |
 
-When a user clicks play on a track:
+### Internal hifi-api Routes
 
-1. The frontend requests the track's stream manifest from the API, which proxies the hifi-api service.
-2. Dash.js initialises the media player with the manifest, and the Web Audio API handles fade-in, crossfade, and optional loudness normalisation.
-3. As audio plays, the frontend periodically sends interaction events to the API.
-4. The API records play duration, completion ratio, and context in `UserInteraction`.
-5. For high-signal events (a like, or a play completed beyond 80 percent), a profile update job is queued.
-6. The worker recomputes the user's weighted genre preferences and then queues a homepage rebuild.
+The Python service is normally consumed through backend `/tidal/*` routes. Its direct routes are defined in `hifi-api/main.py`:
 
-### Recommendation Generation Flow
+```text
+GET /
+GET /info/
+GET /track/
+GET /trackManifests/
+GET /widevine
+POST /widevine
+GET /recommendations/
+GET /search/
+GET /album/
+GET /mix/
+GET /playlist/
+GET /artist/similar/
+GET /album/similar/
+GET /artist/
+GET /cover/
+GET /lyrics/
+GET /topvideos/
+GET /video/
+```
 
-When recommendations are requested (homepage shelves, queue, or radio):
+## Authentication and Authorisation
 
-1. The API gathers the user's listening seeds (recent plays, likes, and saved tracks) from the database, capped at 8 seed tracks and 4 seed artists.
-2. Seed tracks are expanded through Last.fm `track.getSimilar`, and seed artists through `artist.getSimilar` followed by `artist.getTopTracks`, requesting up to 30 similar items per seed.
-3. Candidates are aggregated and ranked by Last.fm similarity (the `match` value) plus popularity.
-4. Each candidate is mapped to a playable Tidal track (using the persistent mapping cache, with at most 44 Tidal lookups per request resolved in batches of 5) and persisted to the catalogue.
-5. Recently played tracks and duplicates are filtered out.
-6. Results are capped per artist for diversity and trimmed to the surface limit (for example, 20 items per homepage shelf, or a queue of 25).
-7. New users with no seeds fall back to Last.fm charts.
-8. The final list is cached per surface for 2 minutes and returned.
+Authentication is implemented in backend source, not through an external auth service.
 
-### Track Enrichment Flow
+- Passwords are hashed with `crypto.scrypt`.
+- Stored password format is `salt:hash` in hex.
+- JWTs are signed with HS256 using `JWT_SECRET`.
+- JWT payload includes `sub`, `iat`, and `exp`.
+- The frontend stores the token under `muse-token` in `localStorage`.
+- The frontend attaches `Authorization: Bearer <token>` to backend requests.
+- In non-production mode only, the backend falls back to `x-user-id` or `DEV_USER_ID` when no valid token exists.
+- In production mode, routes that require identity reject missing or mismatched identities.
 
-When a new track enters the system:
+Owner checks are implemented with `ensureSelf` on routes that operate on another user's resource id.
 
-1. An `enrich_track` job is queued.
-2. Last.fm tags and play count are fetched for the track.
-3. MusicBrainz resolves canonical identifiers and genre.
-4. Genre is derived (the MusicBrainz genre, falling back to the top Last.fm tag).
-5. Tags, genre, and identifiers are written to `TrackFeatures`, and the track is marked enriched.
+## Input Validation
 
----
+The backend uses Zod for these request bodies:
 
-## API and Module Behaviour
+- `POST /auth/signup`
+- `POST /auth/login`
+- `POST /users/:userId/interactions`
+- `POST /library`
+- `DELETE /library`
+- `POST /playlists`
+- `POST /playlists/:id/tracks`
+- `PUT /settings`
+- `POST /actions/:action`
+- `POST /browse/searches`
+- `POST /users/:userId/queue/update`
 
-### Authentication
+Other route parameters are parsed directly in route handlers. Numeric limits are capped in selected routes, for example top tracks and top artists max at 50.
 
-Authentication uses stateless JWTs. `POST /auth/signup` and `POST /auth/login` return a token, and `GET /auth/me` resolves the current user. The frontend stores the token in `localStorage` and attaches it to every request as `Authorization: Bearer <token>`. Routes that act on personal data verify that the token's user matches the requested user, returning HTTP 403 otherwise. In development only, the API falls back to an `x-user-id` header and then to the `DEV_USER_ID` value when no token is present; in production there is no fallback.
+## Error Handling
 
-### REST API Structure
+The backend has a global Fastify error handler:
 
-The API follows REST conventions with these main resource groups:
+- Logs method, URL, request id, and error.
+- Returns `500` with `{ "error": "Internal server error", "requestId": "<id>" }` for unhandled errors.
+- Returns `404` with `{ "error": "Not found", "requestId": "<id>" }` for unknown routes.
 
-- **Auth**: `POST /auth/signup`, `POST /auth/login`, `GET /auth/me`.
-- **Users**: `GET /users/:userId/profile`, `POST /users/:userId/profile/rebuild`, `GET /users/:userId/top-tracks`, `GET /users/:userId/top-artists`.
-- **Recommendations**: `GET /users/:userId/recommendations` (with a surface parameter, an optional seed track, and a limit), `POST /users/:userId/queue/init`, `POST /users/:userId/queue/update`, `GET /users/:userId/queue`, `GET /users/:userId/radio/seeds`, `GET /users/:userId/homepage` and its `/debug` variant.
-- **Interactions**: `POST /users/:userId/interactions` records plays, skips, likes, saves, and follows.
-- **Library and Playlists**: `GET/POST/DELETE /library`, `GET/POST /playlists`, `DELETE /playlists/:id`, and `GET/POST/DELETE /playlists/:id/tracks`.
-- **Actions**: `POST /actions/toggle_like`, `POST /actions/toggle_library`, `POST /actions/toggle_pin`.
-- **Settings**: `GET /settings` and `PUT /settings`.
-- **Browse**: `GET /browse/search-sections`, `GET /browse/recent-searches`, `POST /browse/searches`, `GET /browse/home`.
-- **Context Menu**: `GET /context-menu/:type/:id` returns item state (in library, pinned).
-- **Tracks**: `POST /tracks/ingest`, `GET /tracks/:trackId`, `POST /tracks/:trackId/enrich`.
-- **Tidal Proxy**: `GET /tidal/search`, `GET /tidal/tracks/:id`, `GET /tidal/tracks/:id/stream`, `GET /tidal/albums/:id`, `GET /tidal/artists/:id`, `GET /tidal/playlists/:id`, `GET /tidal/images/*` (with colour extraction), `GET /tidal/genres`, and related endpoints.
-- **Last.fm**: `GET /lastfm/artist/:artistName` returns artist info with Tidal-validated similar artists, and `GET /lastfm/tag/:tagName` and `GET /lastfm/tag/:tagName/similar` return tag metadata.
-- **Infrastructure**: `GET /health` for liveness, `GET /metrics` for request counts and per-route latency statistics (count, average, p50, p95, p99, and maximum over the last 1,000 samples), and Swagger UI at `/docs`.
+Route handlers also return specific statuses such as:
 
-### Data Model
+- `400` for invalid input.
+- `401` for invalid credentials or missing authentication.
+- `403` for ownership failures.
+- `404` for missing users, tracks, artists, or playlists.
+- `409` for duplicate signup email.
+- `422` when profile rebuild has insufficient interaction data.
+- `502` when upstream Last.fm or hifi-api calls fail.
+- `503` when `hifi-api` health check fails.
 
-The Prisma schema defines 19 models: `User`, `UserSetting`, `Artist`, `Album`, `Track`, `TrackFeatures`, `UserInteraction`, `UserProfile`, `SessionQueue`, `Job`, `Recommendation`, `UserLibrary`, `Playlist`, `PlaylistTrack`, `SearchHistory`, `LastfmCache`, `ServiceMapping`, `HomepageCache`, and `ShelfImpression`.
+## Logging
 
----
+- Backend logging uses Pino.
+- Development mode uses `pino-pretty`.
+- Log level is controlled by `LOG_LEVEL`.
+- Per-route latency is collected through Fastify hooks and exposed by `/metrics`.
+- Worker logs job start, job failure, cleanup issues, and enqueue failures.
+- Frontend logging is disabled in production by `Frontend/lib/logger.ts`.
 
 ## Testing
 
-The backend has a Vitest suite (`npm test` in `Backend/`) covering JWT auth, scrypt password hashing, metrics and latency percentiles, database JSON helpers, compilation artist filters, the fuzzy and exact matching algorithms, and the popularity service. Continuous integration runs type checking, linting, and tests for the backend, and linting, type checking, and a production build for the frontend, on every push and pull request to `main`.
+Backend tests use Vitest and are configured in `Backend/vitest.config.ts`.
 
-Beyond the automated suite, manual testing is supported through:
+Run backend tests:
 
-1. **API Exploration**: Use the Swagger UI at `/docs` while the API is running locally.
-2. **Homepage Debug Endpoint**: `GET /users/:userId/homepage/debug` returns diagnostic information about shelf generation.
-3. **Metrics Endpoint**: `GET /metrics` reports request counts and latency statistics (count, average, p50, p95, p99, and maximum) over the last 1,000 samples per metric.
-4. **Health Check**: `GET /health` verifies that the server is up.
+```powershell
+npm --prefix Backend test
+```
 
-To verify recommendations are working:
+Run tests in watch mode:
 
-1. Ensure `LASTFM_API_KEY` is set and the catalogue has tracks.
-2. Generate some play history through the interface.
-3. Check that the homepage loads with personalised shelves.
-4. Use the debug endpoint to confirm shelf and mix sizes (by default, 10 items per shelf and 50 tracks per collection or mix).
+```powershell
+npm --prefix Backend run test:watch
+```
 
----
+Verified backend test coverage in the repository:
 
-## Deployment Overview
+- `Backend/src/auth.test.ts`
+- `Backend/src/password.test.ts`
+- `Backend/src/metrics.test.ts`
+- `Backend/src/db/helpers.test.ts`
+- `Backend/src/services/artistFilters.test.ts`
+- `Backend/src/services/matching.test.ts`
+- `Backend/src/services/popularityService.test.ts`
 
-### Production Considerations
+There are 29 Vitest `it(...)` test cases in these files.
 
-1. **Build**: Run `npm run build` at the root to build both the Backend and the Frontend.
-2. **Environment Variables**: Ensure all required variables are set, especially a strong `JWT_SECRET` and a valid `LASTFM_API_KEY`.
-3. **Database**: Run PostgreSQL on persistent storage and point `DATABASE_URL` at it.
-4. **Process Management**: Use a process manager such as PM2, systemd, or Docker to manage the API, worker, and hifi-api processes.
+The `hifi-api/tests` directory contains script-style HTTP tests and a load script. They require a running `hifi-api` service and valid upstream credentials. They are not wired into a root package script.
 
-### Docker Deployment
+Dependencies were not installed during README generation, so tests were documented from package scripts and source files rather than executed.
 
-The repository ships a complete Docker setup: a root `docker-compose.yml` plus Dockerfiles for `Backend/`, `Frontend/`, and `hifi-api/`. To bring up the whole stack (hifi-api, the backend API, the worker, and the frontend):
+## Code Quality Checks
 
-```bash
-cp Backend/.env.example Backend/.env   # fill in LASTFM_API_KEY, JWT_SECRET, and so on
+Run lint for backend and frontend:
+
+```powershell
+npm run lint
+```
+
+Run backend type checking:
+
+```powershell
+npm run typecheck
+```
+
+Run frontend type checking manually, as CI does:
+
+```powershell
+cd Frontend
+npx tsc --noEmit
+cd ..
+```
+
+Formatting configuration is in `.prettierrc.json`:
+
+```json
+{
+	"useTabs": true,
+	"tabWidth": 2
+}
+```
+
+## Build Process
+
+Build both backend and frontend:
+
+```powershell
+npm run build
+```
+
+This runs:
+
+- `npm --prefix Backend run build`
+- `npm --prefix Frontend run build`
+
+Backend build:
+
+```powershell
+npm --prefix Backend run build
+```
+
+This runs Prisma generate and TypeScript compilation.
+
+Frontend build:
+
+```powershell
+npm --prefix Frontend run build
+```
+
+This creates the Next.js production build.
+
+## Production Deployment
+
+### Docker Compose
+
+The root `docker-compose.yml` defines:
+
+- `postgres` on host port `5432`.
+- `hifi-api` on host port `8000`.
+- `backend-api` on host port `5000`.
+- `backend-worker` with no host port.
+- `frontend` on host port `3000`.
+
+Prepare backend environment:
+
+```powershell
+copy Backend\.env.example Backend\.env
+```
+
+Then edit `Backend\.env` and set real values for `JWT_SECRET`, `LASTFM_API_KEY`, and database related overrides if needed.
+
+Prepare hifi authentication before building:
+
+```powershell
+cd hifi-api
+.\.venv\Scripts\python.exe tidal_auth\tidal_auth.py
+cd ..
+```
+
+If `hifi-api\.venv` does not exist, run `.\setup.ps1` first, or provide `hifi-api\.env` with valid `CLIENT_ID`, `CLIENT_SECRET`, `USER_ID`, and `REFRESH_TOKEN` values before building the image.
+
+Then run:
+
+```powershell
 docker compose up --build
 ```
 
-The backend image's entrypoint (`Backend/docker-entrypoint.sh`) runs `prisma db push` on start, so the schema is created automatically against a fresh PostgreSQL database. The compose stack runs a `postgres` service whose data lives on a named volume, and the API and worker connect to it over the compose network. For a production deployment, place the stack behind a reverse proxy (such as nginx or traefik) for SSL termination and routing.
+This command was not executed during README generation because Docker was not installed on the inspected machine.
 
-The five compose services and their ports are: postgres (5432), hifi-api (8000), the backend API (5000), the backend worker (internal only), and the frontend (3000).
+### Manual Production Processes
 
----
+Use separate terminals or a process manager.
 
-## Performance and Design Considerations
+Build backend from the `Backend` directory:
 
-### Caching Strategy
+```powershell
+cd Backend
+npm run build
+```
 
-Several layers of caching improve response times:
+Start backend API from the `Backend` directory:
 
-1. **In-Memory LRU**: User profiles (up to 10,000 entries, 5-minute TTL), recommendation results (up to 50,000 entries, 2-minute TTL, served stale while rebuilding), playback sessions (up to 100,000 entries, 3-hour TTL), and Tidal lookups are cached in memory.
-2. **Persistent Last.fm Cache**: All Last.fm responses are cached in PostgreSQL, keyed by method and parameters, with a 30-day grace period before cleanup.
-3. **Persistent Service Mapping Cache**: Last.fm to Tidal entity resolutions are cached in PostgreSQL, including a negative cache for entities confirmed not to be on Tidal, which avoids repeated failed lookups.
-4. **Persistent Homepage Cache**: Built homepage shelves are written to the database and served while fresh (a 6-hour window).
+```powershell
+node dist/index.js
+```
 
-### Database Optimisations
+Start backend worker from the `Backend` directory in a separate terminal:
 
-PostgreSQL serves the workload with a connection pool shared by the API and worker processes. Indexes cover foreign keys and common query patterns, including interaction lookups by user, event type, and time.
+```powershell
+node dist/workers/runner.js
+```
 
-### Recommendation Latency
+Start hifi-api from the `hifi-api` directory in a separate terminal:
 
-Recommendation latency is dominated by outbound Last.fm and Tidal calls. To keep responses fast:
+```powershell
+cd hifi-api
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
+```
 
-- Results are cached per surface in memory for 2 minutes.
-- Seed expansion fans out across Last.fm endpoints in parallel (up to 8 seed tracks and 4 seed artists, 30 similar items each).
-- Tidal resolution is batched (5 at a time) with a hard cap of 44 lookups per request, and uses the persistent mapping cache for zero-network hits.
-- Genre-preference profiles are cached in memory for 5 minutes.
+Build and start frontend from the `Frontend` directory in a separate terminal:
 
-### Trade-offs
+```powershell
+cd Frontend
+npm run build
+npm start
+```
 
-1. **PostgreSQL**: PostgreSQL is the datastore. It supports concurrent connections from the API and worker processes and scales beyond a single node, at the cost of running and configuring a database server.
+For production, put the frontend and backend behind HTTPS. Do not expose `hifi-api` publicly unless you understand the credential and upstream account risk.
 
-2. **Last.fm Similarity versus Local Models**: Recommendations rely on Last.fm's crowd-sourced listening data rather than a local machine-learning model. This removes all model and inference infrastructure at the cost of a network dependency and per-request API calls.
+## CI Process
 
-3. **Client-Side versus Server-Side Rendering**: The Next.js App Router provides server-side rendering for initial loads, improving first paint, at the cost of server compute.
+GitHub Actions workflow: `.github/workflows/ci.yml`.
 
----
+Triggers:
 
-## Known Limitations
+- Push to `main`.
+- Pull request to `main`.
 
-1. **Tidal Dependency**: Music metadata and streaming require the running hifi-api service and a valid Tidal account. The application cannot stream audio without it.
+Backend CI:
 
-2. **Last.fm Dependency**: Personalised recommendations require a Last.fm API key and network access. Without it, the system falls back to local database popularity.
+- Checkout.
+- Setup Node 20.
+- `npm ci`.
+- `npx prisma generate`.
+- `npm run typecheck`.
+- `npm run lint --if-present`.
+- `npm test --if-present`.
 
-3. **No Native Mobile Application**: The interface is web only, although it is mobile-responsive and installable as a Progressive Web App. There are no native iOS or Android applications.
+Frontend CI:
 
-4. **Catalogue Population**: The catalogue grows as tracks are ingested and resolved from Last.fm and Tidal. There is no bundled bulk seed script.
+- Checkout.
+- Setup Node 20.
+- `npm ci`.
+- `npm run lint --if-present`.
+- `npx tsc --noEmit`.
+- `npm run build` with `NEXT_PUBLIC_API_BASE_URL=http://localhost:5000`.
 
-5. **No Collaborative Filtering**: Recommendations are based on content similarity (Last.fm) and popularity. True collaborative filtering across users is not implemented.
+## Security Considerations
 
-6. **Shared Database**: All API and worker instances connect to a single PostgreSQL server. Scaling out the application tier is supported, but the database itself is a shared dependency that must be provisioned and managed separately.
+- Replace the default `JWT_SECRET` in any real deployment.
+- Do not commit `.env`, `.env.local`, `token.json`, refresh tokens, proxy credentials, or database credentials.
+- The frontend stores tokens in `localStorage`; treat XSS prevention as important.
+- `@fastify/cors` is configured with `origin: true`, so review CORS policy before public deployment.
+- Docker Compose uses default PostgreSQL credentials for local convenience. Change them outside development.
+- `hifi-api` can expose upstream credentials and account behaviour. Keep it private.
+- `FALLBACK_TO_DIRECT_CONNECTION=True` in `hifi-api` can expose the host IP when proxies fail.
+- `DEV_MODE=True` in `hifi-api` can log sensitive upstream request data.
+- Production mode removes the unauthenticated development fallback user.
 
----
+## Performance Considerations
+
+Verified from source:
+
+- Profile cache: max 10,000 entries, default TTL 5 minutes.
+- Recommendation cache: max 50,000 entries, default TTL 2 minutes, stale allowed.
+- Session queue cache: max 100,000 entries, default TTL 3 hours.
+- Metrics timing reservoir: max 1,000 samples per metric.
+- Worker concurrency default: 4.
+- Worker poll interval default: 500 ms.
+- Job lease default: 300 seconds.
+- Job max attempts default: 3.
+- Queue size default: 25.
+- Queue low water mark default: 5.
+- Homepage cache freshness default: 6 hours.
+- Shelf impression retention default: 90 days.
+- Last.fm stale cache cleanup grace default: 30 days.
+- Tidal resolution batch default: 5.
+- Tidal lookup cap default: 44 per recommendation request.
+
+Metrics such as bundle size, build time, runtime memory, and test coverage percentage are not measured in the current repository.
+
+## Monitoring and Maintenance
+
+Use these endpoints:
+
+```text
+GET /health
+GET /metrics
+GET /tidal/health
+```
+
+Use these maintenance commands:
+
+```powershell
+npm --prefix Backend run db:studio
+npm --prefix Backend run regen:mixes
+```
+
+The worker also performs periodic cleanup:
+
+- Expired Last.fm cache rows past grace period.
+- Old shelf impressions past retention period.
+
+## Repository Metrics
+
+| Metric                                               | Verified value                          | Source or command                                                       | Notes                                               |
+| ---------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- |
+| Repository files excluding `.git` and `node_modules` | 281                                     | `rg --files -uu -g '!**/node_modules/**' -g '!**/.git/**'`              | Includes source, configs, docs, and SVG assets.     |
+| Backend Fastify method routes                        | 57                                      | Route extraction from `Backend/src/api/*.ts` and `Backend/src/index.ts` | Includes `/health` and `/metrics`.                  |
+| hifi-api method route entries                        | 18                                      | Decorator extraction from `hifi-api/main.py`                            | `GET` and `POST /widevine` counted separately.      |
+| Prisma models                                        | 19                                      | `Backend/prisma/schema.prisma`                                          | Main PostgreSQL schema.                             |
+| Frontend App Router pages                            | 12                                      | `rg --files Frontend/app -g 'page.tsx'`                                 | Includes dynamic album, artist, and playlist pages. |
+| Frontend TSX components                              | 43                                      | `rg --files Frontend/components -g '*.tsx'`                             | Includes UI primitives.                             |
+| Backend test files                                   | 7                                       | `rg --files Backend -g '*.test.ts'`                                     | Vitest files.                                       |
+| Backend Vitest test cases                            | 29                                      | `rg -n "it\\(" Backend/src -g "*.test.ts"`                              | Counted `it(...)` calls.                            |
+| hifi-api test scripts                                | 2                                       | `rg --files hifi-api/tests`                                             | Script-style tests, not root CI tests.              |
+| Root npm scripts                                     | 7                                       | `package.json`                                                          | Root orchestration scripts.                         |
+| Backend npm scripts                                  | 13                                      | `Backend/package.json`                                                  | API, worker, DB, test, lint, typecheck.             |
+| Frontend npm scripts                                 | 4                                       | `Frontend/package.json`                                                 | Next dev, build, start, lint.                       |
+| Backend env variables                                | 40                                      | `Backend/.env.example` and `Backend/src/config.ts`                      | Includes `DATABASE_URL`.                            |
+| hifi-api env variables read by code                  | 13                                      | `hifi-api/main.py`, `hifi-api/tidal_auth/tidal_auth.py`                 | Includes variables not shown in `.env.example`.     |
+| Default frontend port                                | 3000                                    | `Frontend/Dockerfile`, `start.ps1`, `package.json`                      | Next.js default.                                    |
+| Default backend port                                 | 5000                                    | `Backend/src/config.ts`, `docker-compose.yml`                           | Configurable by `PORT`.                             |
+| Default hifi-api port                                | 8000                                    | `hifi-api/Dockerfile`, `start.ps1`, `docker-compose.yml`                | Uvicorn default in repo scripts.                    |
+| Test coverage percentage                             | Not measured in the current repository. | No coverage script found                                                | Vitest coverage is not configured.                  |
+| Bundle size                                          | Not measured in the current repository. | No bundle analysis script found                                         | Next build may report output when run.              |
+| Build time                                           | Not measured in the current repository. | Build commands not executed                                             | Requires installed dependencies.                    |
 
 ## Troubleshooting
 
-### Homepage Shows No Content
+| Problem                                  | Likely cause                                             | Diagnostic command                                        | Resolution                                                          |
+| ---------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------- |
+| `python` is not recognised               | Python is not installed or not on `PATH`                 | `python --version`                                        | Install Python and reopen PowerShell.                               |
+| `npm` is not recognised                  | Node.js is not installed or not on `PATH`                | `npm --version`                                           | Install Node.js and reopen PowerShell.                              |
+| Prisma cannot connect                    | PostgreSQL is not running or `DATABASE_URL` is wrong     | `npm --prefix Backend run db:push`                        | Start PostgreSQL and fix `Backend/.env`.                            |
+| Frontend cannot call backend             | Backend is not running or API base URL is wrong          | Open `http://localhost:5000/health`                       | Start backend and set `NEXT_PUBLIC_API_BASE_URL`.                   |
+| `hifi-api` does not start in `start.ps1` | `.venv` or `token.json` is missing                       | `Test-Path hifi-api\.venv; Test-Path hifi-api\token.json` | Run `.\setup.ps1` and then hifi authentication.                     |
+| Playback stream fails                    | `hifi-api` cannot fetch stream info                      | Open `http://localhost:5000/tidal/health`                 | Start `hifi-api` and refresh token credentials.                     |
+| Recommendations are empty                | Missing Last.fm key or empty catalogue                   | Check backend logs and `LASTFM_API_KEY`                   | Set `LASTFM_API_KEY`, play or ingest tracks, and run worker.        |
+| Login fails                              | Invalid password, duplicate email, or changed JWT secret | Check response status from `/auth/login`                  | Use the correct password. Keep `JWT_SECRET` stable across restarts. |
+| Docker command is missing                | Docker is not installed                                  | `docker --version`                                        | Install Docker Desktop or use local PowerShell commands.            |
+| Docker backend exits during startup      | `Backend/.env` missing or database schema push failed    | `docker compose logs backend-api`                         | Create `Backend/.env` and confirm database service health.          |
 
-- Verify the database has tracks by checking the API logs for the dataset row counts printed at startup.
-- Ensure `LASTFM_API_KEY` is set so the trending and recommendation fallbacks work.
-- Verify the hifi-api service is reachable, since recommendations resolve candidates to Tidal.
+## Known Limitations
 
-### Playback Does Not Start
+- Audio streaming depends on `hifi-api` and valid Tidal-compatible authentication.
+- Personalised recommendations degrade when `LASTFM_API_KEY` is missing.
+- The project does not include a native mobile app.
+- PostgreSQL must be available for normal backend operation.
+- Root development scripts are Windows PowerShell oriented.
+- The frontend stores auth tokens in `localStorage`.
+- The root project has no root `LICENSE` file.
+- Test coverage percentage is not configured.
+- Docker was not available on the inspected machine, so compose commands were not executed during README validation.
 
-- Verify the hifi-api service is reachable from the backend.
-- Check the browser console for Dash.js errors.
-- Ensure the track has a valid Tidal ID in the database.
+## Contribution Guidelines
 
-### Recommendations Feel Repetitive
+1. Create a focused branch.
+2. Keep changes scoped to the relevant backend, frontend, or hifi-api area.
+3. Update this README when setup, environment variables, routes, or commands change.
+4. Run the relevant checks before opening a pull request:
 
-- Build up more listening history (likes and saves are stronger seeds than plays).
-- Clear the recommendation cache by restarting the API server.
-- Confirm Last.fm is reachable, since without it the results fall back to popularity.
+```powershell
+npm run lint
+npm run typecheck
+npm test
+```
 
-### Recommendations Are Empty
+5. For frontend changes, also run:
 
-- Confirm `LASTFM_API_KEY` is valid (the client logs a warning when it is missing).
-- Check that seed tracks have a resolvable artist name in the catalogue.
-- Verify outbound network access to `ws.audioscrobbler.com`.
+```powershell
+cd Frontend
+npx tsc --noEmit
+npm run build
+cd ..
+```
 
-### Login or Signup Fails
+## Coding Standards
 
-- Confirm `JWT_SECRET` is set and consistent across restarts (changing it invalidates existing tokens).
-- Ensure passwords are at least eight characters long.
-- Check that the PostgreSQL server at the configured `DATABASE_URL` is reachable and accepting writes.
+- TypeScript strict mode is enabled in backend and frontend configs.
+- Backend uses ESM modules.
+- Backend raw SQL boundaries intentionally allow `any` in ESLint config.
+- Formatting uses tabs with width 2.
+- Do not commit generated build output, dependency directories, `.env` files, virtual environments, or token files.
+- Prefer route-level validation with Zod for new JSON inputs.
+- Keep secrets outside source code.
 
----
+## Licence
 
-## Contribution Guide
+No root project licence file is present in the repository.
 
-### Getting Started
+The bundled `hifi-api` directory contains its own `LICENSE` file.
 
-1. Fork the repository and clone your fork.
-2. Follow the [Installation Guide](#installation-guide) to set up your development environment.
-3. Create a feature branch: `git checkout -b feature/your-feature-name`.
+## Support and Contact
 
-### Code Style
-
-- **TypeScript**: Strict mode is enabled. Avoid `any` types outside the SQL boundary.
-- **Formatting**: A Prettier configuration is included (tabs, width two). Run `npx prettier --write` before committing.
-- **Linting**: ESLint is configured for both the Backend and the Frontend. Fix all warnings.
-
-### Making Changes
-
-1. **Small, Focused Commits**: Each commit should address one concern.
-2. **No Breaking Changes**: Maintain backward compatibility for API responses where possible.
-3. **Update Documentation**: Update this README if your change affects setup or configuration.
-4. **Test Manually**: Verify your changes work with a full local stack, and ensure `npm test`, `npm run lint`, and `npm run typecheck` pass.
-
-### Pull Request Process
-
-1. Push your branch to your fork.
-2. Open a pull request with a clear description of the changes.
-3. Reference any related issues.
-4. Respond to review feedback promptly. Continuous integration must pass before merge.
-
-### Areas for Contribution
-
-- **Mobile Responsiveness**: Continue refining the tablet and mobile layouts.
-- **Playlist Collaboration**: Allow multiple users to edit a shared playlist.
-- **Import and Export**: Support importing playlists from external sources or exporting to M3U.
-- **Expanded Keyboard Shortcuts**: Add more global keyboard controls.
-- **Lyrics Improvements**: Add synced (time-aligned) lyrics where available.
-
----
-
-## Roadmap and Future Improvements
-
-Potential enhancements based on the current architecture:
-
-1. **Multi-User Hardening**: Account recovery, email verification, and role-based access.
-2. **Collaborative Filtering**: Cross-user recommendation signals in addition to content similarity.
-3. **Real-Time Features**: WebSocket integration for collaborative listening sessions.
-4. **Plugin System**: Third-party integrations for lyrics, concerts, and related content.
-5. **Analytics Dashboard**: Visualise listening patterns and recommendation effectiveness.
-
----
-
-## Community Value
-
-Muse demonstrates a complete, production-quality music streaming implementation that anyone can self-host. It bridges the gap between proprietary streaming services and bare-bones media servers by providing:
-
-- **Smart Discovery**: Last.fm-powered similarity recommendations comparable to commercial platforms.
-- **Data Ownership**: All listening history and preferences stored locally.
-- **Educational Value**: Complete source code for learning full-stack TypeScript, background job processing, authentication, and music-API integration.
-- **Hackability**: A clean, layered architecture that allows easy extension and customisation.
-
-Developers interested in recommendation systems, audio streaming, or modern React patterns will find the codebase informative. Music enthusiasts gain a personalised streaming experience without subscription fees or data collection concerns.
+No support email, issue template for the root project, or maintainer contact is defined in the root repository. Use the repository issue tracker or project owner channel if one exists in your hosting environment.

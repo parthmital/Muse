@@ -8,7 +8,9 @@ import base64
 import httpx
 import rich
 
-TOKEN_FILE = Path(os.getenv("TOKEN_FILE", Path(__file__).resolve().parent.parent / "token.json"))
+TOKEN_FILE = Path(
+    os.getenv("TOKEN_FILE", Path(__file__).resolve().parent.parent / "token.json")
+)
 USER_AGENT = os.getenv("USER_AGENT", "okhttp/5.3.2")
 
 
@@ -20,6 +22,7 @@ REQUEST_CLIENT_ID = base64.b64decode("bHczdlI2R0UxdnROQnNqdg==").decode("iso-885
 REQUEST_CLIENT_SECRET = base64.b64decode(
     "WTh0SXBxS0p4czlCRUl3WXIwSTliU2JNV0Rzb2dYSng5TGFOM21DSHdENCUzRA==",
 ).decode("iso-8859-1")
+
 
 class Hifi:
     def __init__(self, client_id, scope, url, client_secret):
@@ -71,9 +74,14 @@ def load_tokens():
 
 def save_token_entry(entry):
     tokens = load_tokens()
-    tokens = [t for t in tokens if not (
-        t.get("client_ID") == entry["client_ID"] and t.get("refresh_token") == entry["refresh_token"]
-    )]
+    tokens = [
+        t
+        for t in tokens
+        if not (
+            t.get("client_ID") == entry["client_ID"]
+            and t.get("refresh_token") == entry["refresh_token"]
+        )
+    ]
     tokens.append(entry)
     with open(TOKEN_FILE, "w") as f:
         json.dump(tokens, f, indent=4)
@@ -93,6 +101,7 @@ async def poll_for_authorization(url, data, auth):
             if response.status_code == 200:
                 return response.json()
             await asyncio.sleep(5)
+
 
 async def main():
     async def run_link_flow():
